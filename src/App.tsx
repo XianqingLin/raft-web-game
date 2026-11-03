@@ -11,12 +11,7 @@ import { InventoryCraftingModal } from './components/InventoryCraftingModal';
 import { PauseMenu } from './components/PauseMenu';
 import { CompactorModal } from './components/CompactorModal';
 import { MerchantModal } from './components/MerchantModal';
-
-interface Toast {
-  id: number;
-  text: string;
-  color: string;
-}
+import { useUiStore } from './state/uiStore';
 
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
@@ -92,16 +87,8 @@ export default function App() {
   const [sharkDefeatedOnce, setSharkDefeatedOnce] = useState(false);
   const [roomId, setRoomId] = useState('ocean-world-1');
 
-  // Toasts
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const addToast = useCallback((text: string, color: string = '#38bdf8') => {
-    const id = Date.now() + Math.random();
-    setToasts((prev) => [...prev.slice(-4), { id, text, color }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 2400);
-  }, []);
+  // Toasts 由事件总线 (core/events.ts) 驱动，store 见 state/uiStore.ts
+  const toasts = useUiStore((s) => s.toasts);
 
   const toggleInventory = useCallback(() => {
     setIsInventoryOpen((prev) => {
@@ -126,7 +113,6 @@ export default function App() {
         setActiveHotbarIdx(activeIdx);
       },
       onInventoryChange: (newInv) => setInventory(newInv),
-      onToast: (text, color) => addToast(text, color),
       onInteractPrompt: (prompt) => setInteractPrompt(prompt),
       onSharkAlert: (alerting) => setSharkAlert(alerting),
       onSharkDataChange: (newShark) => setSharkData(newShark),
@@ -198,7 +184,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown);
       engine.dispose();
     };
-  }, [addToast, toggleInventory]);
+  }, [toggleInventory]);
 
   const requestLock = () => {
     setIsInventoryOpen(false);

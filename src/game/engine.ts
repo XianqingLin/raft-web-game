@@ -49,12 +49,15 @@ import { MultiplayerClient } from './multiplayer';
 import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from './storage';
 import { SharkSystem } from './shark';
 import { InventorySystem } from './inventory';
+import { events } from '../core/events';
 
 export interface GameCallbacks {
   onStatsChange: (stats: PlayerStats) => void;
   onHotbarChange: (hotbar: HotbarSlot[], activeIdx: number) => void;
   onInventoryChange: (inventory: InventorySlot[]) => void;
-  onToast: (text: string, color?: string) => void;
+  /** @deprecated 已迁至事件总线 core/events.ts 的 `toast` 事件。内部调用点在
+   *  各系统拆分时逐一改为 events.emit('toast', ...)，拆完删除本字段。 */
+  onToast?: (text: string, color?: string) => void;
   onInteractPrompt: (prompt: string | null) => void;
   onSharkAlert: (alerting: boolean) => void;
   onSharkDataChange?: (shark: SharkData) => void;
@@ -68,6 +71,12 @@ export interface GameCallbacks {
   onOpenCompactor?: () => void;
   onOpenMerchant?: () => void;
 }
+
+/**
+ * engine 内部使用的回调视图：构造函数会用事件总线接管 onToast 并覆盖原值，
+ * 因此内部调用点可以安全地把它当必选字段用。
+ */
+type EngineCallbacks = GameCallbacks & Required<Pick<GameCallbacks, 'onToast'>>;
 
 export class RaftEngine {
   public scene: THREE.Scene;
@@ -84,7 +93,7 @@ export class RaftEngine {
   public get hotbar(): HotbarSlot[] { return this.inventorySystem.hotbar; }
   public get inventory(): InventorySlot[] { return this.inventorySystem.inventory; }
   public get activeHotbarIdx(): number { return this.inventorySystem.activeHotbarIdx; }
-  private callbacks: GameCallbacks;
+  private callbacks: EngineCallbacks;
 
   // Player State
   public player = {
@@ -182,7 +191,12 @@ export class RaftEngine {
     container: HTMLElement,
     callbacks: GameCallbacks
   ) {
-    this.callbacks = callbacks;
+    // Toast 统一走事件总线（UI 在 state/uiStore.ts 订阅）。旧调用点继续用
+    // this.callbacks.onToast，逐系统拆分时改为 events.emit('toast', ...)。
+    this.callbacks = {
+      ...callbacks,
+      onToast: (text, color) => events.emit('toast', { text, color }),
+    };
 
     // Inventory & Crafting System
     this.inventorySystem = new InventorySystem({
