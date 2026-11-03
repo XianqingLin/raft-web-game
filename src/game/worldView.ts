@@ -12,6 +12,7 @@ import type { FishingSystem } from './systems/fishing';
 import type { StationSystem } from './systems/stations';
 import type { SharkSystem } from './systems/shark';
 import type { TimeSystem } from './systems/time';
+import type { MerchantSystem } from './systems/merchant';
 
 /**
  * WorldView —— 系统工厂拉取依赖的唯一窗口。
@@ -47,7 +48,7 @@ export interface WorldView {
   time: () => TimeSystem;
   islands: () => IslandManager;
   ocean: () => OceanEnvironment;
-  merchantRaft: () => THREE.Group;
+  merchant: () => MerchantSystem;
 
   // 世界级服务
   /** 存档（BuildSystem 放置后自动存档、SharkSystem 击杀后存档走这里） */

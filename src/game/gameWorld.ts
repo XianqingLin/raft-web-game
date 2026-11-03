@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import {
   DebrisObject,
   PlayerStats,
@@ -10,7 +9,6 @@ import {
   WorldSaveData,
   ToolActionKind,
 } from '../types/game';
-import { createMerchantRaftMesh } from './visuals/models';
 import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
 import { WorldDefinition, DEFAULT_WORLD } from '../data/worldDefinition';
 import { createOceanEnvironment, OceanEnvironment, OCEAN_DRIFT_BASE } from './environment/ocean';
@@ -27,6 +25,7 @@ import { StationSystem, createStationSystem } from './systems/stations';
 import { TimeSystem, createTimeSystem } from './systems/time';
 import { DebrisSystem, createDebrisSystem } from './systems/debris';
 import { InteractionSystem, createInteractionSystem } from './systems/interact';
+import { MerchantSystem, createMerchantSystem } from './systems/merchant';
 import { GameEngine, EngineDelegate } from './engine/gameEngine';
 import { WorldView } from './worldView';
 import { Tickable } from './lifecycle';
@@ -117,6 +116,7 @@ export class GameWorld implements EngineDelegate {
   public interaction: InteractionSystem;
   public weatherSystem: WeatherSystem;
   public islandManager: IslandManager;
+  public merchantSystem: MerchantSystem;
   public fishingSystem: FishingSystem;
   public saveSystem: SaveSystem;
 
@@ -129,9 +129,6 @@ export class GameWorld implements EngineDelegate {
   // Pointer lock（React 侧 pointerlockchange 时写入；实际门控在 engine.input）
   public get isPointerLocked(): boolean { return this.engine.input.isPointerLocked; }
   public set isPointerLocked(v: boolean) { this.engine.input.isPointerLocked = v; }
-
-  // 漂流商人筏（场景对象，交互系统近距离判定 + GameWorld 持有）
-  public merchantRaftGroup: THREE.Group | null = null;
 
   private oceanEnv: OceanEnvironment;
   private callbacks: WorldCallbacks;
@@ -185,7 +182,7 @@ export class GameWorld implements EngineDelegate {
       time: () => this.time,
       islands: () => this.islandManager,
       ocean: () => this.oceanEnv,
-      merchantRaft: () => this.merchantRaftGroup!,
+      merchant: () => this.merchantSystem,
       saveWorld: (notify = false) => {
         this.saveWorld(notify);
       },
@@ -201,10 +198,8 @@ export class GameWorld implements EngineDelegate {
     this.weatherSystem = createWeather(w, this.oceanEnv);
     this.islandManager = createIslandManager(scene);
 
-    // Drifting Merchant Outpost Barge (Scavenger Economy)
-    this.merchantRaftGroup = createMerchantRaftMesh();
-    this.merchantRaftGroup.position.set(...definition.merchant.position);
-    scene.add(this.merchantRaftGroup);
+    // Drifting Merchant Outpost Barge (Scavenger Economy) — count/position from definition
+    this.merchantSystem = createMerchantSystem(w);
 
     // Minecraft-Style Fishing System
     this.fishingSystem = createFishingSystem(w);

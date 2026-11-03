@@ -7,6 +7,7 @@ import { FishingSystem } from './fishing';
 import { IslandManager, IslandResource } from '../environment/islands';
 import { SharkSystem } from './shark';
 import { StationSystem } from './stations';
+import { MerchantSystem } from './merchant';
 
 /**
  * InteractionSystem —— 交互射线系统（拆分自 engine.ts，split step 9）。
@@ -31,8 +32,8 @@ export interface InteractionContext {
   fishing: FishingSystem;
   shark: SharkSystem;
   islands: IslandManager;
-  /** 漂流商人筏（Game 创建并持有） */
-  merchantRaftGroup: THREE.Group;
+  /** 漂流商人筏管理器（实体集合，近距离判定遍历它） */
+  merchant: MerchantSystem;
   /** 当前手持物品 id（鱼竿/水杯的提示分支用） */
   getActiveItemId: () => ItemId | null;
   onInteractPrompt: (prompt: string | null) => void;
@@ -137,13 +138,13 @@ export class InteractionSystem {
     }
 
     // Check Drifting Merchant Outpost (Scavenger Economy)
-    if (!promptText && this.ctx.merchantRaftGroup) {
-      const distToMerchant = camera.position.distanceTo(this.ctx.merchantRaftGroup.position);
-      if (distToMerchant < 6.8) {
-        this.aimedMerchant = true;
+    if (!promptText) {
+      const nearMerchant = this.ctx.merchant.merchants.some(
+        (m) => camera.position.distanceTo(m.group.position) < 6.8
+      );
+      this.aimedMerchant = nearMerchant;
+      if (nearMerchant) {
         promptText = '[Left-Click / E] Trade with Drifting Scavenger Merchant';
-      } else {
-        this.aimedMerchant = false;
       }
     } else {
       this.aimedMerchant = false;
@@ -199,7 +200,7 @@ export function createInteractionSystem(w: WorldView): InteractionSystem {
     fishing: w.fishing(),
     shark: w.shark(),
     islands: w.islands(),
-    merchantRaftGroup: w.merchantRaft(),
+    merchant: w.merchant(),
     getActiveItemId: () => {
       const inv = w.inventory();
       return inv.hotbar[inv.activeHotbarIdx]?.itemId ?? null;
