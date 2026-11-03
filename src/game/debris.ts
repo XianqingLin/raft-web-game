@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { DebrisObject, ResourceId } from '../types/game';
 import { createDebrisMesh } from './models';
-import { WorldState } from './world';
+import type { WorldState } from './gameWorld';
 
 /**
  * DebrisSystem —— 漂浮物系统（拆分自 engine.ts，split step 8）。

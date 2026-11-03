@@ -1,4 +1,4 @@
-import { WorldState } from './world';
+import type { WorldState } from './gameWorld';
 
 /**
  * TimeSystem —— 昼夜时间系统（拆分自 engine.ts，split step 7）。

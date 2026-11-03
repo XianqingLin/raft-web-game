@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Game } from './game/game';
+import { GameWorld } from './game/gameWorld';
 import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, SharkData, WeatherType } from './types/game';
 import { HUD } from './components/HUD';
 import { InventoryCraftingModal } from './components/InventoryCraftingModal';
@@ -16,7 +16,7 @@ import { events } from './core/events';
 
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<Game | null>(null);
+  const worldRef = useRef<GameWorld | null>(null);
 
   // React State mirrored from engine
   const [stats, setStats] = useState<PlayerStats>({
@@ -102,7 +102,7 @@ export default function App() {
   useEffect(() => {
     if (!canvasMountRef.current) return;
 
-    const engine = new Game(canvasMountRef.current, {
+    const world = new GameWorld(canvasMountRef.current, {
       onStatsChange: (newStats) => setStats(newStats),
       onHotbarChange: (newHotbar, activeIdx) => {
         setHotbar(newHotbar);
@@ -133,14 +133,14 @@ export default function App() {
       },
     });
 
-    engineRef.current = engine;
+    worldRef.current = world;
 
     // Pointer lock listener
     const onPointerLockChange = () => {
       const locked = document.pointerLockElement === canvasMountRef.current || document.pointerLockElement === document.body;
       setIsPointerLocked(locked);
-      if (engineRef.current) {
-        engineRef.current.isPointerLocked = locked;
+      if (worldRef.current) {
+        worldRef.current.isPointerLocked = locked;
       }
     };
 
@@ -151,13 +151,13 @@ export default function App() {
 
     // Periodic state poller for hook charging bar and build mode
     const pollInterval = window.setInterval(() => {
-      if (engineRef.current) {
-        setHookState(engineRef.current.hookSystem.hookState);
-        setHookPower(engineRef.current.hookSystem.hookPower);
-        setIsBuildMode(engineRef.current.build.isBuildMode);
-        setIsDemolishMode(engineRef.current.build.isDemolishMode);
-        setSelectedBuilding(engineRef.current.build.selectedBuildingType);
-        setSharkDefeatedOnce(engineRef.current.sharkSystem.sharkDefeatedOnce);
+      if (worldRef.current) {
+        setHookState(worldRef.current.hookSystem.hookState);
+        setHookPower(worldRef.current.hookSystem.hookPower);
+        setIsBuildMode(worldRef.current.build.isBuildMode);
+        setIsDemolishMode(worldRef.current.build.isDemolishMode);
+        setSelectedBuilding(worldRef.current.build.selectedBuildingType);
+        setSharkDefeatedOnce(worldRef.current.sharkSystem.sharkDefeatedOnce);
       }
     }, 50);
 
@@ -175,7 +175,7 @@ export default function App() {
       offBuildingSelect();
       document.removeEventListener('pointerlockchange', onPointerLockChange);
       window.removeEventListener('keydown', onKeyDown);
-      engine.dispose();
+      world.dispose();
     };
   }, [toggleInventory]);
 
@@ -195,44 +195,44 @@ export default function App() {
 
     // If clicking already active food/drink slot while hungry/thirsty, auto-consume!
     if (activeHotbarIdx === idx && ((isFood && stats.hunger < 98) || (isDrink && stats.thirst < 98))) {
-      engineRef.current?.inventorySystem.consumeSlot(false, idx);
+      worldRef.current?.inventorySystem.consumeSlot(false, idx);
       return;
     }
 
-    engineRef.current?.inventorySystem.setActiveHotbarSlot(idx);
+    worldRef.current?.inventorySystem.setActiveHotbarSlot(idx);
     setActiveHotbarIdx(idx);
   };
 
   const handleSelectBuilding = (b: BuildingType) => {
     setSelectedBuilding(b);
-    if (engineRef.current) {
-      engineRef.current.build.selectBuildingType(b);
+    if (worldRef.current) {
+      worldRef.current.build.selectBuildingType(b);
       setIsBuildMode(true);
       setIsDemolishMode(false);
     }
   };
 
   const handleToggleBuildMode = () => {
-    if (!engineRef.current) return;
-    engineRef.current.build.isBuildMode = !engineRef.current.build.isBuildMode;
-    setIsBuildMode(engineRef.current.build.isBuildMode);
+    if (!worldRef.current) return;
+    worldRef.current.build.isBuildMode = !worldRef.current.build.isBuildMode;
+    setIsBuildMode(worldRef.current.build.isBuildMode);
   };
 
   const handleCraftRecipe = (recipeId: string) => {
-    engineRef.current?.inventorySystem.craftRecipe(recipeId);
+    worldRef.current?.inventorySystem.craftRecipe(recipeId);
   };
 
   const handleRespawn = () => {
-    engineRef.current?.playerSystem.respawnPlayer();
+    worldRef.current?.playerSystem.respawnPlayer();
     requestLock();
   };
 
   const handleSaveWorld = () => {
-    engineRef.current?.saveWorld(true);
+    worldRef.current?.saveWorld(true);
   };
 
   const handleResetWorld = () => {
-    engineRef.current?.resetWorld();
+    worldRef.current?.resetWorld();
   };
 
   return (
@@ -305,7 +305,7 @@ export default function App() {
         }}
         onCraftRecipe={handleCraftRecipe}
         onConsumeSlot={(isInv, idx) => {
-          engineRef.current?.inventorySystem.consumeSlot(isInv, idx);
+          worldRef.current?.inventorySystem.consumeSlot(isInv, idx);
         }}
         stats={stats}
       />
@@ -320,10 +320,10 @@ export default function App() {
         inventory={inventory}
         hotbar={hotbar}
         onFeedJunk={(res, count) => {
-          return engineRef.current ? engineRef.current.stations.feedCompactorJunk(res, count) : false;
+          return worldRef.current ? worldRef.current.stations.feedCompactorJunk(res, count) : false;
         }}
         onForgeBlock={() => {
-          return engineRef.current ? engineRef.current.stations.forgeCompactorBlock() : false;
+          return worldRef.current ? worldRef.current.stations.forgeCompactorBlock() : false;
         }}
       />
 
@@ -339,7 +339,7 @@ export default function App() {
           0
         )}
         onBuyItem={(item) => {
-          return engineRef.current ? engineRef.current.stations.buyMerchantItem(item) : false;
+          return worldRef.current ? worldRef.current.stations.buyMerchantItem(item) : false;
         }}
       />
 
