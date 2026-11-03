@@ -158,33 +158,6 @@ export interface SharkData {
   inWaterAttackTimer: number;
 }
 
-export type AchievementCategory = 'fishing' | 'building' | 'survival' | 'exploration';
-
-export interface Achievement {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  category: AchievementCategory;
-  progress: number;
-  target: number;
-  isUnlocked: boolean;
-  unlockedAt?: number;
-}
-
-export interface PlayerMilestones {
-  fishCaught: number;
-  raftTilesBuilt: number;
-  totalStructuresBuilt: number;
-  daysSurvived: number;
-  debrisHooked: number;
-  mealsCooked: number;
-  waterPurified: number;
-  sharkRepelled: number;
-  islandResourcesHarvested: number;
-  itemsCrafted: number;
-}
-
 export interface RemotePlayer {
   id: string;
   name: string;
@@ -293,8 +266,9 @@ export interface WorldSaveData {
     yaw: number;
     pitch: number;
   };
-  milestones?: PlayerMilestones;
-  unlockedAchievementIds?: string[];
+  // NOTE: Legacy save fields `milestones` / `unlockedAchievementIds` (achievement
+  // system, removed 2026-11-03) are intentionally accepted on load but ignored.
+  // See docs/FEATURES_OFF.md for restoration info.
   signalArray?: {
     powerCellInserted: boolean;
     activeFrequency: number;

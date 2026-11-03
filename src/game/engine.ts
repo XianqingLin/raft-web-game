@@ -11,7 +11,6 @@ import {
   SharkData,
   SharkState,
   WeatherType,
-  Achievement,
   RemotePlayer,
   WorldSaveData,
   SerializedStructure,
@@ -56,7 +55,6 @@ import { createWeatherSystem, WeatherSystem } from './weather';
 import { createIslandManager, IslandManager, IslandResource } from './islands';
 import { createLandmarkManager, LandmarkManager, StoryInteractable } from './landmarks';
 import { FishingSystem } from './fishing';
-import { AchievementManager } from './achievements';
 import { MultiplayerClient } from './multiplayer';
 import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from './storage';
 
@@ -73,7 +71,6 @@ export interface GameCallbacks {
   onWeatherChange?: (weather: WeatherType) => void;
   onBuildingSelect?: (b: BuildingType) => void;
   onToggleInventory?: () => void;
-  onAchievementUnlocked?: (achievement: Achievement) => void;
   onMultiplayerStatusChange?: (status: 'connecting' | 'connected' | 'disconnected' | 'offline') => void;
   onMultiplayerPlayersChange?: (players: RemotePlayer[]) => void;
   onSignalArrayChange?: (signalArray: SignalArrayState) => void;
@@ -91,7 +88,6 @@ export class RaftEngine {
   public islandManager: IslandManager;
   public landmarkManager: LandmarkManager;
   public fishingSystem: FishingSystem;
-  public achievementManager: AchievementManager;
   private callbacks: GameCallbacks;
 
   // Player State
@@ -289,13 +285,6 @@ export class RaftEngine {
     // Minecraft-Style Fishing System
     this.fishingSystem = new FishingSystem(this.scene, {
       onToast: (text, color) => this.callbacks.onToast(text, color),
-    });
-
-    // Milestone & Achievement Manager
-    this.achievementManager = new AchievementManager((unlocked) => {
-      this.callbacks.onAchievementUnlocked?.(unlocked);
-      this.callbacks.onToast(`🏆 Achievement Unlocked: ${unlocked.title}!`, '#fbbf24');
-      soundManager.playAchievementUnlocked();
     });
 
     // Shark Mesh (High-Fidelity Predatory Great White)
@@ -3463,10 +3452,6 @@ export class RaftEngine {
         yaw: this.player.yaw,
         pitch: this.player.pitch,
       },
-      milestones: this.achievementManager.getMilestones(),
-      unlockedAchievementIds: this.achievementManager.getAchievements()
-        .filter((a) => a.isUnlocked)
-        .map((a) => a.id),
       signalArray: {
         powerCellInserted: this.signalArray.powerCellInserted,
         activeFrequency: this.signalArray.activeFrequency,
@@ -3542,10 +3527,6 @@ export class RaftEngine {
       this.callbacks.onStatsChange({ ...this.player.stats });
       this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
       this.callbacks.onInventoryChange([...this.inventory]);
-    }
-
-    if (save.unlockedAchievementIds || save.milestones) {
-      this.achievementManager.restoreSave(save.milestones, save.unlockedAchievementIds);
     }
 
     if (save.signalArray) {
