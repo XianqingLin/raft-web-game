@@ -385,7 +385,7 @@ async function startServer() {
 
   const PORT = process.env.PORT || 3000;
   server.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`Raft 3D Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Raft 3D Server running on http://localhost:${PORT}`);
   });
 }
 

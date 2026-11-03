@@ -1,6 +1,0 @@
-{
-  "name": "Raft 3D - Oceanic Survival",
-  "description": "A high-fidelity 3D oceanic survival simulation inspired by Raft. Cast your scrap hook to retrieve drifting ocean debris, defend your raft from the circling shark, craft tools, purifiers, grills, and expand your multi-level floating fortress.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
