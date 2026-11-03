@@ -24,7 +24,7 @@ import { StationSystem } from './stations';
 import { TimeSystem } from './time';
 import { DebrisSystem } from './debris';
 import { InteractionSystem } from './interact';
-import { GameEngine, EngineDelegate } from './gameEngine';
+import { GameEngine, EngineDelegate } from './engine/gameEngine';
 import { events } from '../core/events';
 
 export interface GameCallbacks {
