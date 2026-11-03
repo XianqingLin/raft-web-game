@@ -35,13 +35,10 @@ import {
   createChestMesh,
   createSailMesh,
   createBedMesh,
-  createSharkMesh,
-  applySharkSkin,
   createDebrisMesh,
   createFPSTool,
   createGrapplingHookMesh,
   createDebrisCompactorMesh,
-  createSharkMeatMesh,
   createMerchantRaftMesh,
 } from './models';
 import { createOceanEnvironment, OceanEnvironment } from './ocean';
@@ -50,6 +47,7 @@ import { createIslandManager, IslandManager, IslandResource } from './islands';
 import { FishingSystem } from './fishing';
 import { MultiplayerClient } from './multiplayer';
 import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from './storage';
+import { SharkSystem } from './shark';
 
 export interface GameCallbacks {
   onStatsChange: (stats: PlayerStats) => void;
@@ -78,6 +76,7 @@ export class RaftEngine {
   public weatherSystem: WeatherSystem;
   public islandManager: IslandManager;
   public fishingSystem: FishingSystem;
+  public sharkSystem: SharkSystem;
   private callbacks: GameCallbacks;
 
   // Player State
@@ -126,23 +125,6 @@ export class RaftEngine {
   public debrisList: DebrisObject[] = [];
   private debrisSpawnTimer = 0;
   private nextDebrisId = 1;
-
-  // Shark (Bruce)
-  public shark: SharkData = {
-    health: 100,
-    maxHealth: 100,
-    state: 'CIRCLING',
-    pos: { x: 20, y: -0.4, z: 0 },
-    targetPos: { x: 20, y: -0.4, z: 0 },
-    angle: 0,
-    circleRadius: 18,
-    speed: 3.5,
-    targetPlankKey: null,
-    biteTimer: 0,
-    fleeTimer: 0,
-    inWaterAttackTimer: 0,
-  };
-  public sharkMesh: THREE.Group;
 
   // Hook Projectile & Rope
   public hookState: 'IDLE' | 'CHARGING' | 'THROWN' | 'FLOATING' | 'RETRACTING' = 'IDLE';
@@ -193,8 +175,6 @@ export class RaftEngine {
   // Signal Array & Navigation Grid State
   // Drifting Merchant Outpost & Dropped Floating Meat
   public merchantRaftGroup: THREE.Group | null = null;
-  public floatingMeatList: { id: number; mesh: THREE.Group; pos: THREE.Vector3; caught: boolean; bobPhase: number }[] = [];
-  private nextMeatId = 1;
   public compactorLoadedJunk = 0;
 
   // Animation frame id & Multiplayer
@@ -202,7 +182,6 @@ export class RaftEngine {
   private clock = new THREE.Clock();
   private driftSpeedMultiplier = 1.0;
   public multiplayer: MultiplayerClient;
-  public sharkDefeatedOnce: boolean = false;
   private autoSaveTimer: any = null;
   private lastNetMoveSendTime: number = 0;
   // UI push throttles (avoid per-frame React re-renders)
@@ -265,9 +244,6 @@ export class RaftEngine {
       onToast: (text, color) => this.callbacks.onToast(text, color),
     });
 
-    // Shark Mesh (High-Fidelity Predatory Great White)
-    this.sharkMesh = createSharkMesh(this.sharkDefeatedOnce);
-    this.scene.add(this.sharkMesh);
 
     // FPS Camera Tool Container
     this.camera.add(this.fpsToolContainer);
@@ -317,8 +293,7 @@ export class RaftEngine {
         }
       },
       onRemoteSharkDefeated: () => {
-        this.sharkDefeatedOnce = true;
-        applySharkSkin(this.sharkMesh, true);
+        this.sharkSystem.applyBloodSkin();
         this.callbacks.onToast('🩸 Fellow survivors struck Bruce down! The beast resurrected as the BLOOD SHARK!', '#ef4444');
       },
       onWorldSync: (serverWorld) => {
@@ -346,6 +321,26 @@ export class RaftEngine {
         }
       },
       onToast: (msg, color) => this.callbacks.onToast(msg, color),
+    });
+
+    // Shark AI & Combat System (Bruce)
+    this.sharkSystem = new SharkSystem({
+      scene: this.scene,
+      camera: this.camera,
+      player: this.player,
+      structures: this.structures,
+      raftGroup: this.raftGroup,
+      multiplayer: this.multiplayer,
+      callbacks: {
+        onToast: (text, color) => this.callbacks.onToast(text, color),
+        onSharkAlert: (alerting) => this.callbacks.onSharkAlert(alerting),
+        onSharkDataChange: (shark) => this.callbacks.onSharkDataChange?.(shark),
+        onStatsChange: (stats) => this.callbacks.onStatsChange(stats),
+      },
+      addItemToInventory: (id, count) => this.addItemToInventory(id, count),
+      saveWorld: (notify) => this.saveWorld(notify),
+      getHookState: () => this.hookState,
+      getHookPos: () => this.hookPos,
     });
 
     // Load Saved World or Create Starter Raft
@@ -1575,7 +1570,7 @@ export class RaftEngine {
         }
       }
     } else if (activeSlot?.itemId === 'spear') {
-      this.performSpearThrust();
+      this.sharkSystem.spearThrust(this.currentToolModel);
     } else if (activeSlot?.itemId === 'cup_freshwater') {
       // Drink
       this.player.stats.thirst = Math.min(100, this.player.stats.thirst + 45);
@@ -1664,83 +1659,6 @@ export class RaftEngine {
       this.hookPos.copy(startPos);
       this.hookVel.copy(lookDir).multiplyScalar(speed);
       this.hookVel.y += 3.8; // Upward arc
-    }
-  }
-
-  // Spear Thrust Action against Bruce the Shark
-  private flashSharkDamage() {
-    this.sharkMesh.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.name !== 'sharkHealthFill' && child.name !== 'sharkHealthBar') {
-        const mat = child.material;
-        if (mat && (mat as any).color) {
-          const original = (mat as any).color.getHex();
-          (mat as any).color.setHex(0xff0000);
-          setTimeout(() => {
-            if (mat && (mat as any).color) (mat as any).color.setHex(original);
-          }, 180);
-        }
-      }
-    });
-  }
-
-  // Spear Thrust Action against Bruce the Shark
-  private performSpearThrust() {
-    soundManager.playSpearThrust();
-
-    // Visual thrust punch animation
-    if (this.currentToolModel) {
-      this.currentToolModel.position.z -= 0.45;
-      setTimeout(() => {
-        if (this.currentToolModel) this.currentToolModel.position.z += 0.45;
-      }, 120);
-    }
-
-    // Check hit against shark
-    const sharkWorldPos = new THREE.Vector3(this.shark.pos.x, this.shark.pos.y, this.shark.pos.z);
-    const distToShark = this.camera.position.distanceTo(sharkWorldPos);
-
-    const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
-    const toShark = sharkWorldPos.clone().sub(this.camera.position);
-    const forwardDot = lookDir.dot(toShark.clone().normalize());
-
-    // Generous reach so players can effectively jab Bruce from the raft or while swimming
-    if (distToShark < 6.5 && (forwardDot > 0.3 || distToShark < 3.5) && this.shark.state !== 'FLEEING') {
-      const damage = 25; // 4 hits = 100 damage (or 3-4 hits)
-      this.shark.health = Math.max(0, this.shark.health - damage);
-      soundManager.playSharkHit();
-      this.flashSharkDamage();
-
-      if (this.shark.health <= 0) {
-        this.shark.state = 'FLEEING';
-        this.shark.fleeTimer = 60; // Flees for 60 seconds
-        this.callbacks.onSharkAlert(false);
-
-        // Spawn floating Prime Shark Meat in the ocean!
-        this.spawnSharkMeat(this.shark.pos.x, this.shark.pos.z);
-        this.spawnSharkMeat(this.shark.pos.x + (Math.random() - 0.5) * 3, this.shark.pos.z + (Math.random() - 0.5) * 3);
-
-        if (!this.sharkDefeatedOnce) {
-          this.sharkDefeatedOnce = true;
-          applySharkSkin(this.sharkMesh, true);
-          if (this.multiplayer?.isConnected) {
-            this.multiplayer.broadcastSharkDefeated();
-          }
-          this.saveWorld(false);
-          this.callbacks.onToast('🩸 BRUCE DEFEATED! Prime Shark Meat dropped into the sea! Transforms into the BLOOD SHARK!', '#ef4444');
-          soundManager.playAchievementUnlocked();
-        } else {
-          this.callbacks.onToast('🥩 Bruce defeated! Slabs of Prime Shark Meat floated to the surface!', '#22c55e');
-        }
-      } else {
-        // Interrupt shark attack on raft or player!
-        if (this.shark.state === 'ATTACKING_RAFT') {
-          this.shark.state = 'CIRCLING';
-          this.callbacks.onSharkAlert(false);
-        }
-        const hitsNeeded = Math.ceil(this.shark.health / damage);
-        this.callbacks.onToast(`🦈 Pierced Bruce! (${Math.round(this.shark.health)}/100 HP - ${hitsNeeded} more hit${hitsNeeded > 1 ? 's' : ''} to flee)`, '#ef4444');
-      }
-      this.callbacks.onSharkDataChange?.({ ...this.shark });
     }
   }
 
@@ -2241,20 +2159,6 @@ export class RaftEngine {
     return -Infinity;
   }
 
-  public spawnSharkMeat(x: number, z: number) {
-    const mesh = createSharkMeatMesh();
-    mesh.position.set(x, 0.05, z);
-    this.scene.add(mesh);
-    this.floatingMeatList.push({
-      id: this.nextMeatId++,
-      mesh,
-      pos: new THREE.Vector3(x, 0.05, z),
-      caught: false,
-      bobPhase: Math.random() * Math.PI * 2,
-    });
-    soundManager.playWaterSplash(0.7);
-  }
-
   // Debris Compactor: Feed junk materials (wood, plastic, thatch/leaf, scrap) into hopper
   public feedCompactorJunk(junkItemId: ItemId, count: number = 1): boolean {
     if (this.compactorLoadedJunk >= 10) {
@@ -2333,214 +2237,6 @@ export class RaftEngine {
     this.callbacks.onToast(`Purchased ${item.yieldCount}x ${item.name}!`, '#22c55e');
 
     return true;
-  }
-
-  private updateShark(dt: number) {
-    // 1. Articulated Sinusoidal Spine Undulation Kinematics
-    const headGroup = this.sharkMesh.getObjectByName('sharkHeadGroup') as THREE.Group;
-    const torsoGroup = this.sharkMesh.getObjectByName('sharkTorso') as THREE.Group;
-    const midGroup = this.sharkMesh.getObjectByName('sharkMid') as THREE.Group;
-    const tailGroup = this.sharkMesh.getObjectByName('sharkTail') as THREE.Group;
-    const tailFluke = this.sharkMesh.getObjectByName('sharkTailFluke') as THREE.Mesh;
-    const lowerJaw = this.sharkMesh.getObjectByName('sharkLowerJaw') as THREE.Group;
-    const pecL = this.sharkMesh.getObjectByName('sharkPecL') as THREE.Mesh;
-    const pecR = this.sharkMesh.getObjectByName('sharkPecR') as THREE.Mesh;
-
-    const currentSpeed = this.shark.state === 'FLEEING' ? 6.8 : this.shark.state === 'CIRCLING' ? 3.6 : 5.8;
-    const swimFreq = currentSpeed * 1.6;
-    const swimTime = this.clock.getElapsedTime() * swimFreq;
-
-    // Sinusoidal wave propagation through body segments
-    if (headGroup) headGroup.rotation.y = Math.sin(swimTime) * 0.09;
-    if (midGroup) midGroup.rotation.y = Math.sin(swimTime - 0.7) * 0.22;
-    if (tailGroup) tailGroup.rotation.y = Math.sin(swimTime - 1.4) * 0.38;
-    if (tailFluke) tailFluke.rotation.y = Math.sin(swimTime - 2.1) * 0.52;
-
-    // Subtle hydrofoil pectoral fin dihedral rhythm
-    if (pecL && pecR) {
-      const pecFlap = Math.sin(swimTime * 0.5) * 0.08;
-      pecL.rotation.z = 0.15 + pecFlap;
-      pecR.rotation.z = 0.15 + pecFlap;
-    }
-
-    // Dynamic jaw snap biting animation
-    if (lowerJaw) {
-      if (this.shark.state === 'ATTACKING_RAFT' || this.shark.state === 'ATTACKING_PLAYER') {
-        lowerJaw.rotation.z = (Math.sin(this.clock.getElapsedTime() * 15) + 1) * 0.28;
-      } else {
-        lowerJaw.rotation.z = THREE.MathUtils.lerp(lowerJaw.rotation.z, 0, dt * 6);
-      }
-    }
-
-    // Overhead 3D Health Bar update
-    const hpBar = this.sharkMesh.getObjectByName('sharkHealthBar');
-    if (hpBar) {
-      if (this.shark.state === 'FLEEING') {
-        hpBar.visible = false;
-      } else {
-        hpBar.visible = true;
-        hpBar.quaternion.copy(this.camera.quaternion);
-        const fill = hpBar.getObjectByName('sharkHealthFill') as THREE.Mesh;
-        if (fill) {
-          const ratio = Math.max(0, Math.min(1, this.shark.health / this.shark.maxHealth));
-          fill.scale.x = ratio;
-          if ((fill.material as any)?.color) {
-            if (this.sharkDefeatedOnce) {
-              (fill.material as any).color.setHex(0xdc2626); // Red blood bar
-            } else {
-              if (ratio > 0.6) (fill.material as any).color.setHex(0x22c55e);
-              else if (ratio > 0.3) (fill.material as any).color.setHex(0xf59e0b);
-              else (fill.material as any).color.setHex(0xef4444);
-            }
-          }
-        }
-      }
-    }
-
-    if (this.shark.state === 'FLEEING') {
-      this.shark.fleeTimer -= dt;
-      // Dive deep below water surface and swim away
-      this.shark.pos.y = -8.0;
-      this.shark.angle += (this.shark.speed * 1.5 * dt) / this.shark.circleRadius;
-      const fleeX = Math.cos(this.shark.angle) * (this.shark.circleRadius + 15);
-      const fleeZ = Math.sin(this.shark.angle) * (this.shark.circleRadius + 15);
-      this.shark.pos.x = THREE.MathUtils.lerp(this.shark.pos.x, fleeX, dt * 1.5);
-      this.shark.pos.z = THREE.MathUtils.lerp(this.shark.pos.z, fleeZ, dt * 1.5);
-
-      if (this.shark.fleeTimer <= 0) {
-        this.shark.state = 'CIRCLING';
-        this.shark.health = 100;
-        this.shark.pos.y = -0.35;
-        if (this.sharkDefeatedOnce) {
-          applySharkSkin(this.sharkMesh, true);
-          this.callbacks.onToast('🩸 The Enraged Blood Bruce has returned to circle the raft...', '#ef4444');
-        } else {
-          this.callbacks.onToast('🦈 Bruce has recovered and returned to circle the raft...', '#f59e0b');
-        }
-      }
-    } else {
-      // Check if player is in water: stalking/attacking player!
-      if (this.player.inWater) {
-        this.player.waterTime += dt;
-        if (this.player.waterTime > 3.0) {
-          this.shark.state = 'ATTACKING_PLAYER';
-          this.callbacks.onSharkAlert(true);
-        }
-      } else {
-        this.player.waterTime = 0;
-        if (this.shark.state === 'ATTACKING_PLAYER') {
-          this.shark.state = 'CIRCLING';
-          this.callbacks.onSharkAlert(false);
-        }
-      }
-
-      if (this.shark.state === 'CIRCLING') {
-        this.shark.angle += (this.shark.speed * dt) / this.shark.circleRadius;
-        const tx = Math.cos(this.shark.angle) * this.shark.circleRadius;
-        const tz = Math.sin(this.shark.angle) * this.shark.circleRadius;
-
-        this.shark.pos.x = THREE.MathUtils.lerp(this.shark.pos.x, tx, dt * 2);
-        this.shark.pos.z = THREE.MathUtils.lerp(this.shark.pos.z, tz, dt * 2);
-        this.shark.pos.y = -0.35; // Fin breaks surface!
-
-        // Shark attack raft timer
-        this.shark.biteTimer += dt;
-        if (this.shark.biteTimer > 85.0 && this.structures.size > 0) {
-          const foundations: PlacedStructure[] = [];
-          this.structures.forEach((s) => {
-            if (s.type === 'foundation' || s.type === 'collection_net' || s.type === 'tri_foundation') {
-              foundations.push(s);
-            }
-          });
-
-          if (foundations.length > 0) {
-            const target = foundations[Math.floor(Math.random() * foundations.length)];
-            this.shark.targetPlankKey = target.id;
-            this.shark.state = 'ATTACKING_RAFT';
-            this.shark.biteTimer = 0;
-            this.callbacks.onSharkAlert(true);
-            this.callbacks.onToast('SHARK ATTACK! Bruce is biting your raft foundation! Jab with Spear!', '#ef4444');
-          }
-        }
-      } else if (this.shark.state === 'ATTACKING_RAFT') {
-        const targetPlank = this.structures.get(this.shark.targetPlankKey || '');
-        if (!targetPlank) {
-          this.shark.state = 'CIRCLING';
-          this.callbacks.onSharkAlert(false);
-          return;
-        }
-
-        const tx = targetPlank.gx * BLOCK_SIZE;
-        const tz = targetPlank.gz * BLOCK_SIZE;
-        const toPlank = new THREE.Vector3(tx - this.shark.pos.x, 0, tz - this.shark.pos.z);
-        const dist = toPlank.length();
-
-        if (dist > 1.2) {
-          toPlank.normalize();
-          this.shark.pos.x += toPlank.x * (this.shark.speed * 1.6) * dt;
-          this.shark.pos.z += toPlank.z * (this.shark.speed * 1.6) * dt;
-          this.shark.pos.y = -0.15;
-        } else {
-          // Biting plank!
-          targetPlank.health -= 15 * dt;
-          targetPlank.mesh.position.y = Math.sin(this.clock.getElapsedTime() * 25) * 0.08;
-
-          if (Math.random() < 0.05) {
-            soundManager.playSharkBite();
-          }
-
-          if (targetPlank.health <= 0) {
-            this.raftGroup.remove(targetPlank.mesh);
-            this.structures.delete(targetPlank.id);
-            this.shark.state = 'CIRCLING';
-            this.callbacks.onSharkAlert(false);
-            this.callbacks.onToast('Bruce destroyed a raft plank!', '#ef4444');
-          }
-        }
-      } else if (this.shark.state === 'ATTACKING_PLAYER') {
-        const toPlayer = new THREE.Vector3(this.player.pos.x - this.shark.pos.x, 0, this.player.pos.z - this.shark.pos.z);
-        const dist = toPlayer.length();
-
-        if (dist > 1.4) {
-          toPlayer.normalize();
-          this.shark.pos.x += toPlayer.x * (this.shark.speed * 1.8) * dt;
-          this.shark.pos.z += toPlayer.z * (this.shark.speed * 1.8) * dt;
-          this.shark.pos.y = -0.15;
-        } else {
-          this.player.stats.health -= 25 * dt;
-          soundManager.playSharkBite();
-          this.callbacks.onToast('BRUCE BIT YOU! (-25 Health)', '#ef4444');
-          this.callbacks.onStatsChange({ ...this.player.stats });
-        }
-      }
-    }
-
-    // Realistic Turn-Rate Inertia, Banking Roll, and Pitch Dives
-    const prevPos = this.sharkMesh.position.clone();
-    this.sharkMesh.position.set(this.shark.pos.x, this.shark.pos.y, this.shark.pos.z);
-    const deltaMove = this.sharkMesh.position.clone().sub(prevPos);
-
-    if (deltaMove.lengthSq() > 0.0001) {
-      // Calculate target horizontal yaw angle (model forward is along +X)
-      const targetYaw = Math.atan2(-deltaMove.z, deltaMove.x);
-      const currentYaw = this.sharkMesh.rotation.y;
-      let diff = targetYaw - currentYaw;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-
-      this.sharkMesh.rotation.y += diff * Math.min(1, dt * 5.2);
-
-      // Realistic hydrodynamic banking roll into turns!
-      const rollTarget = THREE.MathUtils.clamp(-diff * 2.4, -0.45, 0.45);
-      if (torsoGroup) {
-        torsoGroup.rotation.x = THREE.MathUtils.lerp(torsoGroup.rotation.x, rollTarget, dt * 4.5);
-        // Vertical pitch up/down when diving or surfacing
-        const pitchTarget = THREE.MathUtils.clamp(-deltaMove.y * 1.8, -0.42, 0.42);
-        torsoGroup.rotation.z = THREE.MathUtils.lerp(torsoGroup.rotation.z, pitchTarget, dt * 4.5);
-      }
-    }
-
-    this.callbacks.onSharkDataChange?.({ ...this.shark });
   }
 
   // Update Stations: Boiling Purifiers, Sizzling Grills, Growing Crops, Collection Nets
@@ -2704,13 +2400,8 @@ export class RaftEngine {
     }
 
     // Check nearby floating shark meat
-    if (!promptText) {
-      for (const meat of this.floatingMeatList) {
-        if (this.camera.position.distanceTo(meat.pos) < 3.2) {
-          promptText = 'Walk close or hook to collect Prime Shark Meat!';
-          break;
-        }
-      }
+    if (!promptText && this.sharkSystem.isNearMeat(this.camera.position)) {
+      promptText = 'Walk close or hook to collect Prime Shark Meat!';
     }
 
     // Check fishing rod state prompt if not aiming at structure
@@ -3117,50 +2808,11 @@ export class RaftEngine {
       }
     }
 
-    // 5c. Update Floating Shark Meat
-    for (let i = this.floatingMeatList.length - 1; i >= 0; i--) {
-      const meat = this.floatingMeatList[i];
-      if (meat.caught) continue;
 
-      meat.pos.z += effectiveDrift * dt * 0.7;
-      meat.pos.y = 0.08 + Math.sin(elapsed * 2.8 + meat.bobPhase) * 0.05;
-      meat.mesh.position.copy(meat.pos);
-      meat.mesh.rotation.y += 0.5 * dt;
-
-      // Proximity pickup
-      const dist = this.player.pos.distanceTo(meat.pos);
-      if (dist < 2.5) {
-        this.addItemToInventory('shark_meat', 1);
-        this.callbacks.onToast('🥩 Collected Prime Shark Meat slab! (+1 Shark Meat)', '#22c55e');
-        soundManager.playItemCollect();
-        this.scene.remove(meat.mesh);
-        this.floatingMeatList.splice(i, 1);
-        continue;
-      }
-
-      // Hook snag
-      if (
-        (this.hookState === 'FLOATING' || this.hookState === 'RETRACTING' || this.hookState === 'THROWN') &&
-        this.hookPos.distanceTo(meat.pos) < 1.8
-      ) {
-        meat.caught = true;
-        this.addItemToInventory('shark_meat', 1);
-        this.callbacks.onToast('🥩 Hooked Prime Shark Meat slab from the deep!', '#22c55e');
-        soundManager.playItemCollect();
-        this.scene.remove(meat.mesh);
-        this.floatingMeatList.splice(i, 1);
-        continue;
-      }
-
-      if (meat.pos.z > 80) {
-        this.scene.remove(meat.mesh);
-        this.floatingMeatList.splice(i, 1);
-      }
-    }
-
-    // 6. Update Survival Decay (thirst/hunger/regen) & Shark
+    // 6. Update Survival Decay (thirst/hunger/regen), Meat Drift & Shark
     this.updateSurvivalDecay(dt);
-    this.updateShark(dt);
+    this.sharkSystem.updateMeat(dt, elapsed, effectiveDrift);
+    this.sharkSystem.update(dt, elapsed);
 
     // 7. Update Stations & Interact Raycast
     this.updateStations(dt);
@@ -3214,7 +2866,7 @@ export class RaftEngine {
       timestamp: Date.now(),
       dayCount: this.dayCount,
       dayTime: this.dayTime,
-      sharkDefeatedOnce: this.sharkDefeatedOnce,
+      sharkDefeatedOnce: this.sharkSystem.sharkDefeatedOnce,
       structures: serializedStructures,
       player: {
         stats: { ...this.player.stats },
@@ -3273,10 +2925,7 @@ export class RaftEngine {
     if (save.dayTime !== undefined) this.dayTime = save.dayTime;
 
     if (save.sharkDefeatedOnce !== undefined) {
-      this.sharkDefeatedOnce = save.sharkDefeatedOnce;
-      if (this.sharkDefeatedOnce) {
-        applySharkSkin(this.sharkMesh, true);
-      }
+      this.sharkSystem.setDefeated(save.sharkDefeatedOnce);
     }
 
     if (!preservePlayer && save.player) {
@@ -3311,8 +2960,7 @@ export class RaftEngine {
       this.raftGroup.remove(s.mesh);
     });
     this.structures.clear();
-    this.sharkDefeatedOnce = false;
-    applySharkSkin(this.sharkMesh, false);
+    this.sharkSystem.reset();
     this.dayCount = 1;
     this.dayTime = 0.25;
     this.createInitialRaft();

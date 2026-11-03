@@ -179,7 +179,7 @@ export default function App() {
         setIsBuildMode(engineRef.current.isBuildMode);
         setIsDemolishMode(engineRef.current.isDemolishMode);
         setSelectedBuilding(engineRef.current.selectedBuildingType);
-        setSharkDefeatedOnce(engineRef.current.sharkDefeatedOnce);
+        setSharkDefeatedOnce(engineRef.current.sharkSystem.sharkDefeatedOnce);
       }
     }, 50);
 
