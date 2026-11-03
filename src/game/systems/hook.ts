@@ -14,7 +14,7 @@ import { ItemId, ResourceId, ToolActionKind } from '../../types/game';
 import { DebrisObject } from '../entities/debris';
 import { ITEM_DEFINITIONS } from '../../data/items';
 import { soundManager } from '../../audio/soundManager';
-import { createGrapplingHookMesh, createFPSTool } from '../visuals/models';
+import { createGrapplingHookMesh, createFPSTool } from '../visuals/tools';
 import { events } from '../../core/events';
 import { OCEAN_DRIFT_BASE } from '../environment/ocean';
 import { Tickable } from '../lifecycle';

@@ -19,10 +19,8 @@ import {
 } from '../../types/game';
 import { BUILDING_DEFINITIONS } from '../../data/buildings';
 import { soundManager } from '../../audio/soundManager';
+import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/shared';
 import {
-  BLOCK_SIZE,
-  BLOCK_HEIGHT,
-  WALL_HEIGHT,
   createFoundationMesh,
   createCollectionNetMesh,
   createTriFoundationMesh,
@@ -38,7 +36,7 @@ import {
   createSailMesh,
   createBedMesh,
   createDebrisCompactorMesh,
-} from '../visuals/models';
+} from '../visuals/buildings';
 import { events } from '../../core/events';
 import { InventorySystem } from './inventory';
 

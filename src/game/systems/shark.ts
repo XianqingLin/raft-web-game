@@ -4,7 +4,8 @@ import { PlacedStructure, ItemId } from '../../types/game';
 import { SharkData } from '../entities/shark';
 import { SharkSpawnDef } from '../../data/worldDefinition';
 import { soundManager } from '../../audio/soundManager';
-import { BLOCK_SIZE, createSharkMesh, applySharkSkin, createSharkMeatMesh } from '../visuals/models';
+import { BLOCK_SIZE } from '../visuals/shared';
+import { createSharkMesh, applySharkSkin, createSharkMeatMesh } from '../visuals/shark';
 import { PlayerState } from '../entities/player';
 import { OCEAN_DRIFT_BASE } from '../environment/ocean';
 

@@ -12,7 +12,7 @@ import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { PlayerStats } from '../../types/game';
 import { PlayerSpawnDef } from '../../data/worldDefinition';
-import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/models';
+import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/shared';
 import { soundManager } from '../../audio/soundManager';
 import { events } from '../../core/events';
 import { BuildSystem } from './build';

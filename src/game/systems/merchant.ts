@@ -1,7 +1,7 @@
 import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { MerchantSpawnDef } from '../../data/worldDefinition';
-import { createMerchantRaftMesh } from '../visuals/models';
+import { createMerchantRaftMesh } from '../visuals/merchantRaft';
 import { MerchantEntity } from '../entities/merchant';
 
 /**
