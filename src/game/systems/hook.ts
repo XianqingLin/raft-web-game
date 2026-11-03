@@ -12,7 +12,7 @@ import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { ItemId, ResourceId, ToolActionKind } from '../../types/game';
 import { DebrisObject } from '../entities/debris';
-import { ITEM_DEFINITIONS } from '../../data/itemsAndRecipes';
+import { ITEM_DEFINITIONS } from '../../data/items';
 import { soundManager } from '../../audio/soundManager';
 import { createGrapplingHookMesh, createFPSTool } from '../visuals/models';
 import { events } from '../../core/events';

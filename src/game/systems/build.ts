@@ -17,7 +17,7 @@ import {
   ResourceId,
   SerializedStructure,
 } from '../../types/game';
-import { BUILDING_DEFINITIONS } from '../../data/itemsAndRecipes';
+import { BUILDING_DEFINITIONS } from '../../data/buildings';
 import { soundManager } from '../../audio/soundManager';
 import {
   BLOCK_SIZE,

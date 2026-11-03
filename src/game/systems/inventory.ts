@@ -1,6 +1,7 @@
 import type { WorldView } from '../worldView';
 import { HotbarSlot, InventorySlot, ItemId, ResourceId, BuildingType } from '../../types/game';
-import { ITEM_DEFINITIONS, CRAFTING_RECIPES } from '../../data/itemsAndRecipes';
+import { ITEM_DEFINITIONS } from '../../data/items';
+import { CRAFTING_RECIPES } from '../../data/recipes';
 import { soundManager } from '../../audio/soundManager';
 import { PlayerState } from '../entities/player';
 

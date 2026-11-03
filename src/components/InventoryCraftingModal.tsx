@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { InventorySlot, HotbarSlot, PlacedStructure, ResourceId, ItemId } from '../types/game';
-import { CRAFTING_RECIPES, ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
+import { ITEM_DEFINITIONS } from '../data/items';
+import { CRAFTING_RECIPES } from '../data/recipes';
 import { X, Wrench, Shield, Home, Coffee, Package, ArrowRightLeft } from 'lucide-react';
 import { soundManager } from '../audio/soundManager';
 

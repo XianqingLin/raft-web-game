@@ -8,7 +8,7 @@ import {
   ToolActionKind,
 } from '../types/game';
 import { SharkData } from './entities/shark';
-import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
+import { ITEM_DEFINITIONS } from '../data/items';
 import { WorldDefinition, DEFAULT_WORLD } from '../data/worldDefinition';
 import { createOceanEnvironment, OceanEnvironment } from './environment/ocean';
 import { WeatherSystem, createWeather } from './environment/weather';

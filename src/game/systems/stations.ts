@@ -19,7 +19,7 @@ import {
   ResourceId,
 } from '../../types/game';
 import { DebrisObject } from '../entities/debris';
-import { ITEM_DEFINITIONS } from '../../data/itemsAndRecipes';
+import { ITEM_DEFINITIONS } from '../../data/items';
 import { soundManager } from '../../audio/soundManager';
 import { createDebrisMesh } from '../visuals/models';
 import { InventorySystem } from './inventory';
