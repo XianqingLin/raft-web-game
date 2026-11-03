@@ -216,11 +216,11 @@ export default function App() {
 
     // If clicking already active food/drink slot while hungry/thirsty, auto-consume!
     if (activeHotbarIdx === idx && ((isFood && stats.hunger < 98) || (isDrink && stats.thirst < 98))) {
-      engineRef.current?.consumeSlot(false, idx);
+      engineRef.current?.inventorySystem.consumeSlot(false, idx);
       return;
     }
 
-    engineRef.current?.setActiveHotbarSlot(idx);
+    engineRef.current?.inventorySystem.setActiveHotbarSlot(idx);
     setActiveHotbarIdx(idx);
   };
 
@@ -240,7 +240,7 @@ export default function App() {
   };
 
   const handleCraftRecipe = (recipeId: string) => {
-    engineRef.current?.craftRecipe(recipeId);
+    engineRef.current?.inventorySystem.craftRecipe(recipeId);
   };
 
   const handleRespawn = () => {
@@ -340,7 +340,7 @@ export default function App() {
         }}
         onCraftRecipe={handleCraftRecipe}
         onConsumeSlot={(isInv, idx) => {
-          engineRef.current?.consumeSlot(isInv, idx);
+          engineRef.current?.inventorySystem.consumeSlot(isInv, idx);
         }}
         stats={stats}
       />

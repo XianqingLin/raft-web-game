@@ -1,0 +1,428 @@
+{
+  "version": 1,
+  "roomId": "ocean-world-1",
+  "worldName": "Oceanic Raft",
+  "timestamp": 1793687800646,
+  "dayCount": 1,
+  "dayTime": 0.28341555555578724,
+  "sharkDefeatedOnce": true,
+  "structures": [
+    {
+      "id": "foundation_0_0",
+      "type": "foundation",
+      "gx": 0,
+      "gy": 0,
+      "gz": 0,
+      "rotation": 0,
+      "health": 100,
+      "maxHealth": 100,
+      "posX": 0,
+      "posY": 0,
+      "posZ": 0,
+      "data": {
+        "purifierSaltWater": false,
+        "purifierFreshWater": false,
+        "purifierBoilProgress": 0,
+        "grillItem": null,
+        "grillProgress": 0,
+        "grillDone": false,
+        "cropPlanted": false,
+        "cropGrowProgress": 0,
+        "trappedItems": [],
+        "chestItems": [
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "foundation_1_0",
+      "type": "foundation",
+      "gx": 1,
+      "gy": 0,
+      "gz": 0,
+      "rotation": 0,
+      "health": 100,
+      "maxHealth": 100,
+      "posX": 2,
+      "posY": 0,
+      "posZ": 0,
+      "data": {
+        "purifierSaltWater": false,
+        "purifierFreshWater": false,
+        "purifierBoilProgress": 0,
+        "grillItem": null,
+        "grillProgress": 0,
+        "grillDone": false,
+        "cropPlanted": false,
+        "cropGrowProgress": 0,
+        "trappedItems": [],
+        "chestItems": [
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "foundation_0_1",
+      "type": "foundation",
+      "gx": 0,
+      "gy": 0,
+      "gz": 1,
+      "rotation": 0,
+      "health": 100,
+      "maxHealth": 100,
+      "posX": 0,
+      "posY": 0,
+      "posZ": 2,
+      "data": {
+        "purifierSaltWater": false,
+        "purifierFreshWater": false,
+        "purifierBoilProgress": 0,
+        "grillItem": null,
+        "grillProgress": 0,
+        "grillDone": false,
+        "cropPlanted": false,
+        "cropGrowProgress": 0,
+        "trappedItems": [],
+        "chestItems": [
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "foundation_1_1",
+      "type": "foundation",
+      "gx": 1,
+      "gy": 0,
+      "gz": 1,
+      "rotation": 0,
+      "health": 100,
+      "maxHealth": 100,
+      "posX": 2,
+      "posY": 0,
+      "posZ": 2,
+      "data": {
+        "purifierSaltWater": false,
+        "purifierFreshWater": false,
+        "purifierBoilProgress": 0,
+        "grillItem": null,
+        "grillProgress": 0,
+        "grillDone": false,
+        "cropPlanted": false,
+        "cropGrowProgress": 0,
+        "trappedItems": [],
+        "chestItems": [
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          },
+          {
+            "itemId": null,
+            "count": 0
+          }
+        ]
+      }
+    }
+  ],
+  "player": {
+    "stats": {
+      "health": 80.04386000075942,
+      "maxHealth": 100,
+      "hunger": 88.65719699999069,
+      "maxHunger": 100,
+      "thirst": 88.04683199998595,
+      "maxThirst": 100,
+      "isDead": false
+    },
+    "hotbar": [
+      {
+        "itemId": "hook",
+        "count": 1,
+        "durability": 50
+      },
+      {
+        "itemId": "hammer",
+        "count": 1,
+        "durability": 100
+      },
+      {
+        "itemId": "spear",
+        "count": 1,
+        "durability": 40
+      },
+      {
+        "itemId": "cup_empty",
+        "count": 1
+      },
+      {
+        "itemId": "wood",
+        "count": 20
+      },
+      {
+        "itemId": "plastic",
+        "count": 16
+      },
+      {
+        "itemId": "leaf",
+        "count": 12
+      },
+      {
+        "itemId": "scrap",
+        "count": 8
+      }
+    ],
+    "inventory": [
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      },
+      {
+        "itemId": null,
+        "count": 0
+      }
+    ],
+    "pos": {
+      "x": 0.04150224948613915,
+      "y": 0.69038618142191,
+      "z": 14.557050928625117
+    },
+    "yaw": 1.478399999999975,
+    "pitch": -0.36739999999999967
+  }
+}
