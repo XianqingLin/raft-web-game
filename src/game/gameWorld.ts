@@ -29,6 +29,7 @@ import { DebrisSystem, createDebrisSystem } from './systems/debris';
 import { InteractionSystem, createInteractionSystem } from './systems/interact';
 import { GameEngine, EngineDelegate } from './engine/gameEngine';
 import { WorldView } from './worldView';
+import { Tickable } from './lifecycle';
 import { events } from '../core/events';
 
 export interface GameCallbacks {
@@ -138,6 +139,9 @@ export class GameWorld implements EngineDelegate {
   private definition: WorldDefinition;
   /** 工具主动作 → 系统调用的执行表（物品→动作的映射在 data/itemsAndRecipes.ts） */
   private toolActions: Record<ToolActionKind, () => void>;
+
+  /** 每帧 tick 注册表（顺序即执行顺序，见 lifecycle.ts 的两层生命周期约定） */
+  private tickers: Tickable[] = [];
 
   constructor(
     container: HTMLElement,
@@ -269,8 +273,74 @@ export class GameWorld implements EngineDelegate {
     this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
     this.callbacks.onInventoryChange([...this.inventory]);
 
+    // Frame tick order — the declarative replacement for a handwritten
+    // onFrame. Later tickers may read earlier tickers' output (time pushes
+    // dayTime → ocean/weather consume it); cross-system data flow inside a
+    // single step lives in the closure below (composition root's job).
+    this.registerTickers();
+
     // All systems wired: start the engine loop
     this.engine.start();
+  }
+
+  /** 洋流有效漂移速度（基础漂移 × 建筑加成；hook/debris/shark 共用） */
+  private getEffectiveDrift(): number {
+    return OCEAN_DRIFT_BASE * this.build.driftSpeedMultiplier;
+  }
+
+  /** 组合根的帧顺序声明：一个系统一个条目，条目内闭包只做接线 */
+  private registerTickers() {
+    this.tickers.push(
+      { name: 'time', tick: (dt) => this.time.update(dt) },
+      { name: 'weather', tick: (dt) => this.weatherSystem.update(dt, this.engine.camera.position, this.state.dayTime) },
+      {
+        name: 'ocean',
+        tick: (_dt, elapsed) => {
+          this.oceanEnv.updateTimeOfDay(this.state.dayTime);
+          this.oceanEnv.updateWaves(
+            elapsed,
+            this.getEffectiveDrift(),
+            this.weatherSystem.getWaveHeightMultiplier(),
+            this.weatherSystem.getWaveSpeedMultiplier(),
+            this.weatherSystem.getOceanColor(),
+            this.weatherSystem.getOceanRoughness()
+          );
+        },
+      },
+      { name: 'islands', tick: (dt) => this.islandManager.update(dt) },
+      { name: 'player.movement', tick: (dt, elapsed) => this.playerSystem.update(dt, elapsed) },
+      {
+        name: 'hook',
+        tick: (dt, elapsed) =>
+          this.hookSystem.update(dt, elapsed, {
+            effectiveDrift: this.getEffectiveDrift(),
+            playerPos: this.playerSystem.player.pos,
+            activeToolAction: this.getActivePrimaryAction() ?? null,
+            debrisList: this.state.debris,
+            addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
+          }),
+      },
+      {
+        name: 'fishing',
+        tick: (dt, elapsed) => {
+          const waveHMult = this.weatherSystem.getWaveHeightMultiplier();
+          const waveSMult = this.weatherSystem.getWaveSpeedMultiplier();
+          this.fishingSystem.update(
+            dt,
+            this.playerSystem.player.pos,
+            elapsed,
+            (x, z) => this.oceanEnv.getWaveHeightAt(x, z, elapsed, waveHMult, waveSMult)
+          );
+        },
+      },
+      { name: 'debris', tick: (dt, elapsed) => this.debrisSystem.update(dt, elapsed, this.getEffectiveDrift()) },
+      { name: 'player.survival', tick: (dt) => this.playerSystem.updateSurvival(dt) },
+      { name: 'shark.meat', tick: (dt, elapsed) => this.sharkSystem.updateMeat(dt, elapsed, this.getEffectiveDrift()) },
+      { name: 'shark', tick: (dt, elapsed) => this.sharkSystem.update(dt, elapsed) },
+      { name: 'stations', tick: (dt) => this.stations.updateStations(dt) },
+      { name: 'interaction', tick: () => this.interaction.update() },
+      { name: 'build.hologram', tick: () => this.build.updateBuildHologram() },
+    );
   }
 
   // ==================== EngineDelegate: Input Dispatch -> systems ====================
@@ -413,65 +483,11 @@ export class GameWorld implements EngineDelegate {
 
   // ==================== EngineDelegate: Frame ====================
 
-  /** 每帧玩法 tick（渲染由引擎在 tick 后执行） */
+  /** 每帧玩法 tick（渲染由引擎在 tick 后执行）：按注册表顺序执行 */
   public onFrame(dt: number, elapsed: number) {
-    // 1. Time of Day & Weather
-    this.time.update(dt);
-    this.oceanEnv.updateTimeOfDay(this.state.dayTime);
-
-    // Dynamic Weather Simulation & Precipitation Particles
-    this.weatherSystem.update(dt, this.engine.camera.position, this.state.dayTime);
-
-    // Explorable Island Manager Update
-    this.islandManager.update(dt);
-
-    // 2. Waves & Drift (Reacts to weather wind and storm swells)
-    const effectiveDrift = OCEAN_DRIFT_BASE * this.build.driftSpeedMultiplier;
-    this.oceanEnv.updateWaves(
-      elapsed,
-      effectiveDrift,
-      this.weatherSystem.getWaveHeightMultiplier(),
-      this.weatherSystem.getWaveSpeedMultiplier(),
-      this.weatherSystem.getOceanColor(),
-      this.weatherSystem.getOceanRoughness()
-    );
-
-    // 3. Player Movement & Physics (PlayerSystem: walking, swimming, gravity, ceiling)
-    this.playerSystem.update(dt, elapsed);
-
-    // 4. Hook Mechanics (HookSystem: charging, projectile physics, loot collection)
-    this.hookSystem.update(dt, elapsed, {
-      effectiveDrift,
-      playerPos: this.playerSystem.player.pos,
-      activeToolAction: this.getActivePrimaryAction() ?? null,
-      debrisList: this.state.debris,
-      addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
-    });
-
-    // 4b. Minecraft-style Fishing System Update (rod tip computed internally)
-    const waveHMult = this.weatherSystem.getWaveHeightMultiplier();
-    const waveSMult = this.weatherSystem.getWaveSpeedMultiplier();
-    this.fishingSystem.update(
-      dt,
-      this.playerSystem.player.pos,
-      elapsed,
-      (x, z) => this.oceanEnv.getWaveHeightAt(x, z, elapsed, waveHMult, waveSMult)
-    );
-
-    // 5. Floating Debris (spawn cadence, drift, bob, despawn)
-    this.debrisSystem.update(dt, elapsed, effectiveDrift);
-
-    // 6. Update Survival Decay (thirst/hunger/regen), Meat Drift & Shark
-    this.playerSystem.updateSurvival(dt);
-    this.sharkSystem.updateMeat(dt, elapsed, effectiveDrift);
-    this.sharkSystem.update(dt, elapsed);
-
-    // 7. Update Stations & Interact Raycast
-    this.stations.updateStations(dt);
-    this.interaction.update();
-
-    // 8. Update Build Hologram
-    this.build.updateBuildHologram();
+    for (const t of this.tickers) {
+      t.tick(dt, elapsed);
+    }
   }
 
   // ==================== Save / Load（持久化在 SaveSystem，这里只留世界级决策） ====================
