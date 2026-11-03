@@ -1,5 +1,5 @@
 import React from 'react';
-import { MERCHANT_ITEMS } from '../data/storyLandmarks';
+import { MERCHANT_ITEMS } from '../data/merchant';
 import { MerchantItem } from '../types/game';
 
 interface MerchantModalProps {

@@ -21,8 +21,6 @@ export type ResourceId =
   | 'shark_meat'
   | 'cooked_shark_meat'
   | 'salvaged_scrap_block'
-  | 'power_cell'
-  | 'locator_node'
   | 'ironwood'
   | 'titanium_ingot'
   | 'berry'
@@ -56,9 +54,7 @@ export type BuildingType =
   | 'sail'
   | 'bed'
   | 'crafting_table'
-  | 'debris_compactor'
-  | 'signal_receiver'
-  | 'locator_antenna';
+  | 'debris_compactor';
 
 export interface ItemDef {
   id: ItemId;
@@ -189,47 +185,8 @@ export interface SerializedStructure {
   data?: PlacedStructure['data'];
 }
 
-export type StoryLocationId =
-  | 'sunken_beacon'
-  | 'leviathan_wreck'
-  | 'redwood_atoll'
-  | 'scrap_city'
-  | 'biodome_colony'
-  | 'trench_spire'
-  | 'glacier_station'
-  | 'last_haven';
-
-export interface LoreLog {
-  id: string;
-  title: string;
-  source: string;
-  timestamp: string;
-  snippet: string;
-  fullText: string[];
-}
-
-export interface StoryLocation {
-  id: StoryLocationId;
-  name: string;
-  tagline: string;
-  frequency: number; // e.g. 104.2 MHz
-  x: number;
-  z: number;
-  icon: string;
-  discovered: boolean;
-  restored: boolean;
-  objective: string;
-  loreLogs: LoreLog[];
-  rewards: Partial<Record<ResourceId, number>>;
-}
-
-export interface SignalArrayState {
-  receiverPlaced: boolean;
-  nodesPlacedCount: number; // 0..3
-  powerCellInserted: boolean;
-  activeFrequency: number;
-  activeLocationId: StoryLocationId;
-}
+// NOTE: Story/landmark types (StoryLocationId, StoryLocation, LoreLog,
+// SignalArrayState) were removed 2026-11-03 — see docs/FEATURES_OFF.md.
 
 export interface CompactorState {
   loadedJunk: number; // Max 10 junk to compact 1 block
@@ -267,14 +224,8 @@ export interface WorldSaveData {
     pitch: number;
   };
   // NOTE: Legacy save fields `milestones` / `unlockedAchievementIds` (achievement
-  // system, removed 2026-11-03) are intentionally accepted on load but ignored.
-  // See docs/FEATURES_OFF.md for restoration info.
-  signalArray?: {
-    powerCellInserted: boolean;
-    activeFrequency: number;
-    activeLocationId: StoryLocationId;
-  };
-  unlockedLoreIds?: string[];
-  completedLocationIds?: StoryLocationId[];
+  // system) and `signalArray` / `unlockedLoreIds` / `completedLocationIds`
+  // (story/landmark system) are intentionally accepted on load but ignored.
+  // Both systems removed 2026-11-03 — see docs/FEATURES_OFF.md.
 }
 

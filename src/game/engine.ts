@@ -9,17 +9,13 @@ import {
   DebrisObject,
   PlacedStructure,
   SharkData,
-  SharkState,
   WeatherType,
   RemotePlayer,
   WorldSaveData,
   SerializedStructure,
-  SignalArrayState,
-  StoryLocationId,
   MerchantItem,
 } from '../types/game';
 import { ITEM_DEFINITIONS, BUILDING_DEFINITIONS, CRAFTING_RECIPES } from '../data/itemsAndRecipes';
-import { STORY_LOCATIONS, MERCHANT_ITEMS } from '../data/storyLandmarks';
 import { soundManager } from '../audio/soundManager';
 import {
   BLOCK_SIZE,
@@ -45,15 +41,12 @@ import {
   createFPSTool,
   createGrapplingHookMesh,
   createDebrisCompactorMesh,
-  createSignalReceiverMesh,
-  createLocatorAntennaMesh,
   createSharkMeatMesh,
   createMerchantRaftMesh,
 } from './models';
 import { createOceanEnvironment, OceanEnvironment } from './ocean';
 import { createWeatherSystem, WeatherSystem } from './weather';
 import { createIslandManager, IslandManager, IslandResource } from './islands';
-import { createLandmarkManager, LandmarkManager, StoryInteractable } from './landmarks';
 import { FishingSystem } from './fishing';
 import { MultiplayerClient } from './multiplayer';
 import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from './storage';
@@ -73,10 +66,8 @@ export interface GameCallbacks {
   onToggleInventory?: () => void;
   onMultiplayerStatusChange?: (status: 'connecting' | 'connected' | 'disconnected' | 'offline') => void;
   onMultiplayerPlayersChange?: (players: RemotePlayer[]) => void;
-  onSignalArrayChange?: (signalArray: SignalArrayState) => void;
   onOpenCompactor?: () => void;
   onOpenMerchant?: () => void;
-  onOpenStoryJournal?: () => void;
 }
 
 export class RaftEngine {
@@ -86,7 +77,6 @@ export class RaftEngine {
   private oceanEnv: OceanEnvironment;
   public weatherSystem: WeatherSystem;
   public islandManager: IslandManager;
-  public landmarkManager: LandmarkManager;
   public fishingSystem: FishingSystem;
   private callbacks: GameCallbacks;
 
@@ -198,18 +188,9 @@ export class RaftEngine {
   private raycaster = new THREE.Raycaster();
   private aimedInteractable: { structure: PlacedStructure; action: string } | null = null;
   private aimedIslandResource: IslandResource | null = null;
-  public aimedStoryInteractable: StoryInteractable | null = null;
   public aimedMerchant: boolean = false;
 
   // Signal Array & Navigation Grid State
-  public signalArray: SignalArrayState = {
-    receiverPlaced: false,
-    nodesPlacedCount: 0,
-    powerCellInserted: false,
-    activeFrequency: 104.2,
-    activeLocationId: 'sunken_beacon',
-  };
-
   // Drifting Merchant Outpost & Dropped Floating Meat
   public merchantRaftGroup: THREE.Group | null = null;
   public floatingMeatList: { id: number; mesh: THREE.Group; pos: THREE.Vector3; caught: boolean; bobPhase: number }[] = [];
@@ -273,9 +254,6 @@ export class RaftEngine {
 
     // Explorable Tropical Islands with flora, terrain, palm trees, and harvestables
     this.islandManager = createIslandManager(this.scene);
-
-    // 8 Landmark Story Locations with Rich 3D Geometry
-    this.landmarkManager = createLandmarkManager(this.scene);
 
     // Drifting Merchant Outpost Barge (Scavenger Economy)
     this.merchantRaftGroup = createMerchantRaftMesh();
@@ -356,7 +334,7 @@ export class RaftEngine {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(localSave),
-          }).catch(() => {});
+          }).catch(() => { });
           return;
         }
 
@@ -521,8 +499,8 @@ export class RaftEngine {
       (isFoundationType
         ? `${type}_${gx}_${gz}`
         : type === 'wall' || type === 'window_wall' || type === 'fence'
-        ? `${type}_${posX.toFixed(1)}_${posY.toFixed(1)}_${posZ.toFixed(1)}`
-        : `${type}_${gx}_${gy}_${gz}`);
+          ? `${type}_${posX.toFixed(1)}_${posY.toFixed(1)}_${posZ.toFixed(1)}`
+          : `${type}_${gx}_${gy}_${gz}`);
 
     if (this.structures.has(key)) {
       if (checkCost) {
@@ -590,14 +568,6 @@ export class RaftEngine {
       case 'debris_compactor':
         mesh = createDebrisCompactorMesh();
         break;
-      case 'signal_receiver':
-        mesh = createSignalReceiverMesh();
-        this.signalArray.receiverPlaced = true;
-        this.callbacks.onSignalArrayChange?.({ ...this.signalArray });
-        break;
-      case 'locator_antenna':
-        mesh = createLocatorAntennaMesh();
-        break;
       default:
         mesh = createFoundationMesh();
     }
@@ -659,7 +629,6 @@ export class RaftEngine {
 
     // Update sail bonus & signal array placement state
     this.updateSailSpeed();
-    this.updateSignalArrayPlacementState();
     return true;
   }
 
@@ -702,7 +671,6 @@ export class RaftEngine {
     this.saveWorld(false);
 
     this.updateSailSpeed();
-    this.updateSignalArrayPlacementState();
   }
 
   private countFoundations(): number {
@@ -953,8 +921,6 @@ export class RaftEngine {
     'sail',
     'bed',
     'debris_compactor',
-    'signal_receiver',
-    'locator_antenna',
   ];
 
   public cycleBuildingPiece(dir: number) {
@@ -1400,35 +1366,6 @@ export class RaftEngine {
       return true;
     }
 
-    // 8. Signal Receiver Array (Navigation & Waypoints Console)
-    if (structure.type === 'signal_receiver') {
-      if (!this.signalArray.powerCellInserted) {
-        let hasCell = false;
-        for (const slot of [...this.hotbar, ...this.inventory]) {
-          if (slot.itemId === 'power_cell') {
-            hasCell = true;
-            break;
-          }
-        }
-        if (hasCell) {
-          this.insertPowerCellIntoReceiver();
-          return true;
-        }
-      }
-      this.callbacks.onOpenStoryJournal?.();
-      return true;
-    }
-
-    // 9. Locator Antenna Node
-    if (structure.type === 'locator_antenna') {
-      this.updateSignalArrayPlacementState();
-      this.callbacks.onToast(
-        `📡 Locator Antenna node active! (${this.signalArray.nodesPlacedCount}/3 Nodes connected to Signal Array)`,
-        '#38bdf8'
-      );
-      return true;
-    }
-
     return false;
   }
 
@@ -1538,54 +1475,6 @@ export class RaftEngine {
       this.callbacks.onOpenMerchant?.();
       return;
     }
-
-    // -0.5. Check Landmark Story Interactables (Consoles, switches, reactors, crates)
-    if (this.aimedStoryInteractable) {
-      const ok = this.landmarkManager.interact(
-        this.aimedStoryInteractable,
-        (msg, col) => this.callbacks.onToast(msg, col),
-        (id, count) => this.addItemToInventory(id, count)
-      );
-      if (ok) {
-        this.aimedStoryInteractable = null;
-        return;
-      }
-    }
-
-    // 0. Check Island Harvestable Resource (Coconuts, Driftwood, Stone, Berries, Nests)
-    if (this.aimedIslandResource) {
-      const res = this.aimedIslandResource;
-      const ok = this.islandManager.harvestResource(
-        res,
-        (id, count) => this.addItemToInventory(id, count),
-        (msg, color) => this.callbacks.onToast(msg, color)
-      );
-      if (ok) {
-        this.aimedIslandResource = null;
-        return;
-      }
-    }
-
-    // 1. Aimed interactable structure
-    if (this.aimedInteractable) {
-      this.interactWithStructure(this.aimedInteractable.structure);
-      return;
-    }
-
-    const structureUnderCrosshair = this.getStructureUnderCrosshair();
-    if (structureUnderCrosshair) {
-      this.interactWithStructure(structureUnderCrosshair);
-      return;
-    }
-
-    // If aiming at ocean water with empty cup -> scoop saltwater!
-    const activeSlot = this.hotbar[this.activeHotbarIdx];
-    if (activeSlot?.itemId === 'cup_empty' && (this.player.inWater || this.camera.position.y < 3.0)) {
-      activeSlot.itemId = 'cup_saltwater';
-      soundManager.playWaterSplash(0.9);
-      this.callbacks.onToast('Gathered Cup of Ocean Saltwater', '#38bdf8');
-      this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-    }
   }
 
   // Left Click Down
@@ -1628,21 +1517,10 @@ export class RaftEngine {
       return;
     }
 
-    // 2. Check Merchant or Landmark Story interaction
+    // 2. Check Merchant interaction
     if (this.aimedMerchant) {
       this.callbacks.onOpenMerchant?.();
       return;
-    }
-    if (this.aimedStoryInteractable) {
-      const ok = this.landmarkManager.interact(
-        this.aimedStoryInteractable,
-        (msg, col) => this.callbacks.onToast(msg, col),
-        (id, count) => this.addItemToInventory(id, count)
-      );
-      if (ok) {
-        this.aimedStoryInteractable = null;
-        return;
-      }
     }
 
     // 3. Left click on harvestable island resource
@@ -2160,12 +2038,6 @@ export class RaftEngine {
       case 'debris_compactor':
         sourceMesh = createDebrisCompactorMesh();
         break;
-      case 'signal_receiver':
-        sourceMesh = createSignalReceiverMesh();
-        break;
-      case 'locator_antenna':
-        sourceMesh = createLocatorAntennaMesh();
-        break;
       default:
         sourceMesh = createFoundationMesh();
     }
@@ -2361,12 +2233,6 @@ export class RaftEngine {
       supportY = Math.max(supportY, islandH);
     }
 
-    // 5. Check Story Landmark Decks, Platforms, and Terrains
-    const landmarkH = this.landmarkManager.getHeightAt(px, pz);
-    if (landmarkH > 0.05) {
-      supportY = Math.max(supportY, landmarkH);
-    }
-
     if (supportY !== -Infinity) {
       return supportY + 1.7;
     }
@@ -2466,73 +2332,7 @@ export class RaftEngine {
     soundManager.playCraft();
     this.callbacks.onToast(`Purchased ${item.yieldCount}x ${item.name}!`, '#22c55e');
 
-    if (item.yieldItem === 'power_cell') {
-      this.callbacks.onToast('⚡ Power Cell acquired! Slot into your Signal Receiver to activate long-range frequencies!', '#38bdf8');
-    }
     return true;
-  }
-
-  // Signal Array: Tune Frequency Console
-  public tuneSignalFrequency(freq: number) {
-    this.signalArray.activeFrequency = freq;
-    let matchingLoc: StoryLocationId | null = null;
-    for (const loc of Object.values(STORY_LOCATIONS)) {
-      if (Math.abs(loc.frequency - freq) < 0.25) {
-        matchingLoc = loc.id;
-        break;
-      }
-    }
-    if (matchingLoc) {
-      this.signalArray.activeLocationId = matchingLoc;
-      const loc = STORY_LOCATIONS[matchingLoc];
-      this.callbacks.onToast(`📡 Frequency locked: ${freq.toFixed(1)} MHz — ${loc.name}`, '#10b981');
-    } else {
-      this.callbacks.onToast(`📻 Tuned to ${freq.toFixed(1)} MHz — Static radio noise...`, '#94a3b8');
-    }
-    this.callbacks.onSignalArrayChange?.({ ...this.signalArray });
-  }
-
-  // Signal Array: Slot Power Cell into Receiver Console
-  public insertPowerCellIntoReceiver(): boolean {
-    if (this.signalArray.powerCellInserted) {
-      this.callbacks.onToast('Power Cell is already active in Signal Receiver!', '#38bdf8');
-      return true;
-    }
-
-    let found: HotbarSlot | InventorySlot | null = null;
-    for (const s of [...this.hotbar, ...this.inventory]) {
-      if (s.itemId === 'power_cell') {
-        found = s;
-        break;
-      }
-    }
-    if (!found) {
-      this.callbacks.onToast('Need a Rare Power Cell! (Barter with Drifting Merchant or find in Wreckage)', '#ef4444');
-      return false;
-    }
-
-    found.count--;
-    if (found.count <= 0) found.itemId = null;
-    this.signalArray.powerCellInserted = true;
-    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-    this.callbacks.onInventoryChange([...this.inventory]);
-    this.callbacks.onSignalArrayChange?.({ ...this.signalArray });
-    soundManager.playAchievementUnlocked();
-    this.callbacks.onToast('⚡ Power Cell slotted! Signal Array frequency grid ONLINE!', '#10b981');
-    return true;
-  }
-
-  // Synchronize Signal Array Nodes Count with Placed Structures
-  public updateSignalArrayPlacementState() {
-    let receiverPlaced = false;
-    let nodesCount = 0;
-    for (const s of this.structures.values()) {
-      if (s.type === 'signal_receiver') receiverPlaced = true;
-      if (s.type === 'locator_antenna') nodesCount++;
-    }
-    this.signalArray.receiverPlaced = receiverPlaced;
-    this.signalArray.nodesPlacedCount = nodesCount;
-    this.callbacks.onSignalArrayChange?.({ ...this.signalArray });
   }
 
   private updateShark(dt: number) {
@@ -2874,18 +2674,6 @@ export class RaftEngine {
           foundInteract = { structure: s, action: 'compactor' };
           promptText = `[Left-Click / E] Open Debris Compactor (${this.compactorLoadedJunk}/10 Junk Loaded)`;
           break;
-        } else if (s.type === 'signal_receiver') {
-          foundInteract = { structure: s, action: 'receiver' };
-          if (!this.signalArray.powerCellInserted) {
-            promptText = '[Left-Click / E] Slot Power Cell into Signal Receiver';
-          } else {
-            promptText = '[Left-Click / E] Access Signal Array (Waypoints & Frequencies)';
-          }
-          break;
-        } else if (s.type === 'locator_antenna') {
-          foundInteract = { structure: s, action: 'antenna' };
-          promptText = `[Left-Click / E] Inspect Locator Antenna Node (${this.signalArray.nodesPlacedCount}/3 Active)`;
-          break;
         } else if (s.type === 'collection_net' && (s.data?.trappedItems?.length || 0) > 0) {
           foundInteract = { structure: s, action: 'collect_net' };
           promptText = `[Left-Click / E] Collect ${s.data!.trappedItems!.length} Trapped Item(s)`;
@@ -2913,19 +2701,6 @@ export class RaftEngine {
       }
     } else {
       this.aimedMerchant = false;
-    }
-
-    // Check Landmark Story Interactables (Consoles, black boxes, reactors, dynamos)
-    if (!promptText) {
-      const storyInt = this.landmarkManager.checkInteraction(this.raycaster, this.camera.position);
-      if (storyInt) {
-        this.aimedStoryInteractable = storyInt;
-        promptText = storyInt.prompt;
-      } else {
-        this.aimedStoryInteractable = null;
-      }
-    } else {
-      this.aimedStoryInteractable = null;
     }
 
     // Check nearby floating shark meat
@@ -3342,9 +3117,6 @@ export class RaftEngine {
       }
     }
 
-    // 5b. Update Story Landmark Consoles & Animations
-    this.landmarkManager.update(dt, this.camera.position);
-
     // 5c. Update Floating Shark Meat
     for (let i = this.floatingMeatList.length - 1; i >= 0; i--) {
       const meat = this.floatingMeatList[i];
@@ -3452,13 +3224,6 @@ export class RaftEngine {
         yaw: this.player.yaw,
         pitch: this.player.pitch,
       },
-      signalArray: {
-        powerCellInserted: this.signalArray.powerCellInserted,
-        activeFrequency: this.signalArray.activeFrequency,
-        activeLocationId: this.signalArray.activeLocationId,
-      },
-      unlockedLoreIds: this.landmarkManager.getUnlockedLore(),
-      completedLocationIds: this.landmarkManager.getCompletedLandmarks(),
     };
 
     saveWorldLocally(save);
@@ -3469,7 +3234,7 @@ export class RaftEngine {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(save),
-    }).catch(() => {});
+    }).catch(() => { });
 
     if (notify) {
       this.callbacks.onToast('💾 World saved successfully!', '#10b981');
@@ -3528,17 +3293,6 @@ export class RaftEngine {
       this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
       this.callbacks.onInventoryChange([...this.inventory]);
     }
-
-    if (save.signalArray) {
-      this.signalArray.powerCellInserted = save.signalArray.powerCellInserted;
-      this.signalArray.activeFrequency = save.signalArray.activeFrequency;
-      this.signalArray.activeLocationId = save.signalArray.activeLocationId;
-      this.callbacks.onSignalArrayChange?.({ ...this.signalArray });
-    }
-    if (save.unlockedLoreIds || save.completedLocationIds) {
-      this.landmarkManager.restoreProgress(save.unlockedLoreIds || [], save.completedLocationIds || []);
-    }
-    this.updateSignalArrayPlacementState();
 
     this.updateSailSpeed();
     return true;

@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { PlayerStats, HotbarSlot, BuildingType, SharkData, WeatherType, RemotePlayer, SignalArrayState } from '../types/game';
+import { PlayerStats, HotbarSlot, BuildingType, SharkData, WeatherType, RemotePlayer } from '../types/game';
 import { ITEM_DEFINITIONS, BUILDING_DEFINITIONS } from '../data/itemsAndRecipes';
-import { Heart, Utensils, Droplets, Sun, Moon, AlertTriangle, Hammer, Backpack, Volume2, VolumeX, ShieldAlert, CloudRain, CloudFog, Save, Users, ChevronDown, Radio, BookOpen, Store, SlidersHorizontal } from 'lucide-react';
+import { Heart, Utensils, Droplets, Sun, Moon, AlertTriangle, Hammer, Backpack, Volume2, VolumeX, ShieldAlert, CloudRain, CloudFog, Save, Users, ChevronDown, Store, SlidersHorizontal } from 'lucide-react';
 import { soundManager } from '../audio/soundManager';
-import { RadarWidget } from './RadarWidget';
 
 interface HUDProps {
   stats: PlayerStats;
@@ -32,11 +31,6 @@ interface HUDProps {
   localPlayerName?: string;
   localPlayerColor?: string;
   sharkDefeatedOnce?: boolean;
-  signalArray?: SignalArrayState;
-  playerPos?: { x: number; y: number; z: number };
-  playerYaw?: number;
-  onTuneFrequency?: (freq: number) => void;
-  onOpenStoryJournal?: () => void;
   onOpenCompactor?: () => void;
   onOpenMerchant?: () => void;
 }
@@ -68,16 +62,10 @@ export const HUD: React.FC<HUDProps> = ({
   localPlayerName = 'Survivor',
   localPlayerColor = '#38bdf8',
   sharkDefeatedOnce = false,
-  signalArray,
-  playerPos = { x: 0, y: 0, z: 0 },
-  playerYaw = 0,
-  onTuneFrequency,
-  onOpenStoryJournal,
   onOpenCompactor,
   onOpenMerchant,
 }) => {
   const [showPlayersList, setShowPlayersList] = useState(false);
-  const [showRadar, setShowRadar] = useState(true);
   const isNight = dayProgress > 0.55 || dayProgress < 0.05;
 
   const buildingOptions: BuildingType[] = [
@@ -97,8 +85,6 @@ export const HUD: React.FC<HUDProps> = ({
     'sail',
     'bed',
     'debris_compactor',
-    'signal_receiver',
-    'locator_antenna',
   ];
 
   const selectedBuildingDef = BUILDING_DEFINITIONS[selectedBuilding];
@@ -252,18 +238,6 @@ export const HUD: React.FC<HUDProps> = ({
             {soundManager.getIsMuted() ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-sky-400" />}
           </button>
 
-          {signalArray && (
-            <button
-              onClick={() => setShowRadar((r) => !r)}
-              className={`p-2 backdrop-blur-md text-white rounded-xl border shadow-lg transition-all cursor-pointer ${
-                showRadar ? 'bg-emerald-800/90 border-emerald-400/50 text-emerald-200' : 'bg-slate-900/85 hover:bg-slate-800 border-white/10'
-              }`}
-              title="Toggle Radar Display"
-            >
-              <Radio className="w-4 h-4" />
-            </button>
-          )}
-
           {onOpenMerchant && (
             <button
               onClick={onOpenMerchant}
@@ -275,16 +249,6 @@ export const HUD: React.FC<HUDProps> = ({
             </button>
           )}
 
-          {onOpenStoryJournal && (
-            <button
-              onClick={onOpenStoryJournal}
-              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-700 hover:bg-indigo-600 text-white font-medium text-xs rounded-xl shadow-lg border border-indigo-400/40 transition-all cursor-pointer"
-              title="Open Story Journal & Waypoints"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-indigo-200" />
-              <span className="hidden sm:inline">Story [J]</span>
-            </button>
-          )}
 
           {onSaveWorld && (
             <button
@@ -316,19 +280,6 @@ export const HUD: React.FC<HUDProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Radar Scope Dock */}
-      {signalArray && showRadar && (
-        <div className="absolute top-18 right-4 pointer-events-auto z-20">
-          <RadarWidget
-            signalArray={signalArray}
-            playerPos={playerPos}
-            playerYaw={playerYaw}
-            onTuneFrequency={onTuneFrequency || (() => {})}
-            onOpenJournal={onOpenStoryJournal || (() => {})}
-          />
-        </div>
-      )}
 
       {/* 2. Shark Danger Alert Banner */}
       {sharkAlert && shark.state !== 'FLEEING' && (

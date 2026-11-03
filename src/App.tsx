@@ -5,13 +5,12 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { RaftEngine } from './game/engine';
-import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, SharkData, WeatherType, RemotePlayer, SignalArrayState } from './types/game';
+import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, SharkData, WeatherType, RemotePlayer } from './types/game';
 import { HUD } from './components/HUD';
 import { InventoryCraftingModal } from './components/InventoryCraftingModal';
 import { PauseMenu } from './components/PauseMenu';
 import { CompactorModal } from './components/CompactorModal';
 import { MerchantModal } from './components/MerchantModal';
-import { StoryJournalModal } from './components/StoryJournalModal';
 
 interface Toast {
   id: number;
@@ -76,21 +75,9 @@ export default function App() {
   const [activeChest, setActiveChest] = useState<PlacedStructure | null>(null);
   const [isCompactorOpen, setIsCompactorOpen] = useState(false);
   const [isMerchantOpen, setIsMerchantOpen] = useState(false);
-  const [isStoryJournalOpen, setIsStoryJournalOpen] = useState(false);
   const [isBuildMode, setIsBuildMode] = useState(false);
   const [isDemolishMode, setIsDemolishMode] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState<BuildingType>('foundation');
-
-  // Signal Array Navigation & Story Mode State
-  const [signalArray, setSignalArray] = useState<SignalArrayState>({
-    receiverPlaced: false,
-    nodesPlacedCount: 0,
-    powerCellInserted: false,
-    activeFrequency: 104.2,
-    activeLocationId: 'sunken_beacon',
-  });
-  const [playerPos, setPlayerPos] = useState({ x: 0, y: 0, z: 0 });
-  const [playerYaw, setPlayerYaw] = useState(0);
 
   // Time / Day & Weather
   const [dayCount, setDayCount] = useState(1);
@@ -157,17 +144,12 @@ export default function App() {
       onToggleInventory: () => toggleInventory(),
       onMultiplayerStatusChange: (status) => setMultiplayerStatus(status),
       onMultiplayerPlayersChange: (players) => setRemotePlayers(players),
-      onSignalArrayChange: (newSignalArray) => setSignalArray(newSignalArray),
       onOpenCompactor: () => {
         setIsCompactorOpen(true);
         document.exitPointerLock?.();
       },
       onOpenMerchant: () => {
         setIsMerchantOpen(true);
-        document.exitPointerLock?.();
-      },
-      onOpenStoryJournal: () => {
-        setIsStoryJournalOpen(true);
         document.exitPointerLock?.();
       },
     });
@@ -198,28 +180,14 @@ export default function App() {
         setIsDemolishMode(engineRef.current.isDemolishMode);
         setSelectedBuilding(engineRef.current.selectedBuildingType);
         setSharkDefeatedOnce(engineRef.current.sharkDefeatedOnce);
-        setPlayerPos({
-          x: engineRef.current.player.pos.x,
-          y: engineRef.current.player.pos.y,
-          z: engineRef.current.player.pos.z,
-        });
-        setPlayerYaw(engineRef.current.player.yaw);
       }
     }, 50);
 
-    // Keyboard shortcut for I or Tab (Inventory), J (Story Journal)
+    // Keyboard shortcut for I or Tab (Inventory)
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'KeyI' || e.code === 'Tab') {
         e.preventDefault();
         toggleInventory();
-      } else if (e.code === 'KeyJ') {
-        e.preventDefault();
-        setIsStoryJournalOpen((prev) => {
-          const next = !prev;
-          if (next) document.exitPointerLock?.();
-          else document.body.requestPointerLock?.();
-          return next;
-        });
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -237,7 +205,6 @@ export default function App() {
     setActiveChest(null);
     setIsCompactorOpen(false);
     setIsMerchantOpen(false);
-    setIsStoryJournalOpen(false);
     setActiveChest(null);
     document.body.requestPointerLock?.();
   };
@@ -334,14 +301,6 @@ export default function App() {
         localPlayerName={localPlayerName}
         localPlayerColor={localPlayerColor}
         sharkDefeatedOnce={sharkDefeatedOnce}
-        signalArray={signalArray}
-        playerPos={playerPos}
-        playerYaw={playerYaw}
-        onTuneFrequency={(freq) => engineRef.current?.tuneSignalFrequency(freq)}
-        onOpenStoryJournal={() => {
-          setIsStoryJournalOpen(true);
-          document.exitPointerLock?.();
-        }}
         onOpenCompactor={() => {
           setIsCompactorOpen(true);
           document.exitPointerLock?.();
@@ -419,22 +378,9 @@ export default function App() {
         }}
       />
 
-      {/* Shattered Horizons Story & Navigation Journal */}
-      <StoryJournalModal
-        isOpen={isStoryJournalOpen}
-        onClose={() => {
-          setIsStoryJournalOpen(false);
-          document.body.requestPointerLock?.();
-        }}
-        signalArray={signalArray}
-        onTuneFrequency={(freq) => {
-          engineRef.current?.tuneSignalFrequency(freq);
-        }}
-      />
-
       {/* Pause & Start Splash Screen */}
       <PauseMenu
-        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest && !isCompactorOpen && !isMerchantOpen && !isStoryJournalOpen}
+        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest && !isCompactorOpen && !isMerchantOpen}
         onResume={requestLock}
         onRespawn={handleRespawn}
         onSaveWorld={handleSaveWorld}
