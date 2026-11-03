@@ -1,0 +1,108 @@
+import * as THREE from 'three';
+import { DebrisObject, ResourceId } from '../types/game';
+import { createDebrisMesh } from './models';
+import { WorldState } from './world';
+
+/**
+ * DebrisSystem —— 漂浮物系统（拆分自 engine.ts，split step 8）。
+ *
+ * 职责：漂浮物的生成（类型/产量/网格）、漂浮漂移与自转、
+ * 越界回收。列表与自增 id 存放在 WorldState.debris，
+ * hook（钩取）与 stations（收集网）直接读写同一份数组。
+ */
+
+export interface DebrisSystemContext {
+  scene: THREE.Scene;
+  world: WorldState;
+}
+
+const SPAWN_INTERVAL = 3.4;
+const MAX_DEBRIS = 15;
+const DESPAWN_Z = 58;
+
+export class DebrisSystem {
+  private ctx: DebrisSystemContext;
+  private spawnTimer = 0;
+
+  constructor(ctx: DebrisSystemContext) {
+    this.ctx = ctx;
+  }
+
+  /** 生成一个漂浮物（customZ 为null时在上游远处随机生成） */
+  public spawn(customZ: number | null = null) {
+    const types: Array<DebrisObject['type']> = ['wood', 'plastic', 'leaf', 'barrel', 'crate', 'scrap', 'stone'];
+    const r = Math.random();
+    let type: DebrisObject['type'] = 'wood';
+    if (r > 0.88) type = 'barrel';
+    else if (r > 0.76) type = 'crate';
+    else if (r > 0.58) type = 'leaf';
+    else if (r > 0.38) type = 'plastic';
+    else if (r > 0.22) type = 'scrap';
+    else if (r > 0.12) type = 'stone';
+
+    const mesh = createDebrisMesh(type);
+    const x = (Math.random() - 0.5) * 44;
+    const z = customZ !== null ? customZ : -65 - Math.random() * 30;
+    mesh.position.set(x, 0.05, z);
+    mesh.rotation.y = Math.random() * Math.PI * 2;
+    this.ctx.scene.add(mesh);
+
+    const yields: Partial<Record<ResourceId, number>> = {};
+    if (type === 'wood') yields.wood = 1 + Math.floor(Math.random() * 2);
+    else if (type === 'plastic') yields.plastic = 1 + Math.floor(Math.random() * 2);
+    else if (type === 'leaf') yields.leaf = 1 + Math.floor(Math.random() * 3);
+    else if (type === 'barrel') {
+      yields.wood = 1 + Math.floor(Math.random() * 2);
+      yields.plastic = 1 + Math.floor(Math.random() * 2);
+      yields.scrap = 1;
+      if (Math.random() > 0.5) yields.raw_potato = 1;
+    } else if (type === 'crate') {
+      yields.wood = 2;
+      yields.rope = 1;
+      yields.stone = 1;
+    } else if (type === 'scrap') yields.scrap = 1;
+    else if (type === 'stone') yields.stone = 1;
+
+    this.ctx.world.debris.push({
+      id: this.ctx.world.nextDebrisId++,
+      mesh,
+      type,
+      caught: false,
+      pos: { x, y: 0.05, z },
+      bobPhase: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.7,
+      yields,
+    });
+  }
+
+  /** 每帧：按节奏补充漂浮物（上限15），漂移/浮动/自转，越界回收 */
+  public update(dt: number, elapsed: number, drift: number) {
+    const debris = this.ctx.world.debris;
+
+    this.spawnTimer += dt;
+    if (this.spawnTimer > SPAWN_INTERVAL && debris.length < MAX_DEBRIS) {
+      this.spawnTimer = 0;
+      this.spawn();
+    }
+
+    for (let i = debris.length - 1; i >= 0; i--) {
+      const d = debris[i];
+      if (d.caught) continue;
+
+      d.mesh.position.z += drift * dt;
+      d.mesh.position.y = Math.sin(elapsed * 2.2 + d.bobPhase) * 0.05 + 0.02;
+      d.mesh.rotation.y += d.rotSpeed * dt;
+
+      if (d.mesh.position.z > DESPAWN_Z) {
+        this.ctx.scene.remove(d.mesh);
+        debris.splice(i, 1);
+      }
+    }
+  }
+
+  /** 清空所有漂浮物（世界重置/销毁用） */
+  public dispose() {
+    this.ctx.world.debris.forEach((d) => this.ctx.scene.remove(d.mesh));
+    this.ctx.world.debris = [];
+  }
+}

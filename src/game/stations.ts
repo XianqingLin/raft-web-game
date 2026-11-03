@@ -37,7 +37,7 @@ export interface StationSystemContext {
   onStatsChange: () => void;
   onOpenChest: (chest: PlacedStructure) => void;
   onOpenCompactor: () => void;
-  /** 床睡觉判定：dayTime/dayCount 仍由 engine 持有 */
+  /** 床睡觉判定：时间策略由 TimeSystem 持有，数值在 WorldState */
   getIsNight: () => boolean;
   /** 推进到次日清晨，返回新的天数（用于提示文案） */
   advanceToMorning: () => number;

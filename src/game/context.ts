@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { PlayerStats } from '../types/game';
 
 /**
- * Shared player state shape (structurally implemented by RaftEngine.player).
- * Subsystem modules depend on this interface instead of the engine class,
+ * Shared player state shape (structurally implemented by Game.playerSystem.player).
+ * Subsystem modules depend on this interface instead of the Game class,
  * which keeps the dependency graph acyclic.
  */
 export interface PlayerState {

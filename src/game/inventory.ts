@@ -287,4 +287,16 @@ export class InventorySystem {
 
     return false;
   }
+
+  /** 把当前手持的空杯装满海水（是否靠近水源由 Game 判定后调用） */
+  public fillCupWithSaltwater(): boolean {
+    const slot = this.hotbar[this.activeHotbarIdx];
+    if (!slot || slot.itemId !== 'cup_empty') return false;
+
+    slot.itemId = 'cup_saltwater';
+    soundManager.playWaterSplash(0.9);
+    this.callbacks.onToast('Gathered Cup of Ocean Saltwater', '#38bdf8');
+    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
+    return true;
+  }
 }

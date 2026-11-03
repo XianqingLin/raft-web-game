@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { RaftEngine } from './game/engine';
+import { Game } from './game/game';
 import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, SharkData, WeatherType } from './types/game';
 import { HUD } from './components/HUD';
 import { InventoryCraftingModal } from './components/InventoryCraftingModal';
@@ -16,7 +16,7 @@ import { events } from './core/events';
 
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<RaftEngine | null>(null);
+  const engineRef = useRef<Game | null>(null);
 
   // React State mirrored from engine
   const [stats, setStats] = useState<PlayerStats>({
@@ -102,7 +102,7 @@ export default function App() {
   useEffect(() => {
     if (!canvasMountRef.current) return;
 
-    const engine = new RaftEngine(canvasMountRef.current, {
+    const engine = new Game(canvasMountRef.current, {
       onStatsChange: (newStats) => setStats(newStats),
       onHotbarChange: (newHotbar, activeIdx) => {
         setHotbar(newHotbar);
