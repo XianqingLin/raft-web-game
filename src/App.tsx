@@ -12,6 +12,7 @@ import { PauseMenu } from './components/PauseMenu';
 import { CompactorModal } from './components/CompactorModal';
 import { MerchantModal } from './components/MerchantModal';
 import { useUiStore } from './state/uiStore';
+import { events } from './core/events';
 
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
@@ -126,7 +127,6 @@ export default function App() {
         setDayProgress(prog);
       },
       onWeatherChange: (newWeather) => setWeather(newWeather),
-      onBuildingSelect: (b) => setSelectedBuilding(b),
       onToggleInventory: () => toggleInventory(),
       onMultiplayerStatusChange: (status) => setMultiplayerStatus(status),
       onMultiplayerPlayersChange: (players) => setRemotePlayers(players),
@@ -157,14 +157,17 @@ export default function App() {
 
     document.addEventListener('pointerlockchange', onPointerLockChange);
 
+    // Build selection now arrives via the event bus (core/events.ts)
+    const offBuildingSelect = events.on('buildingSelected', ({ type }) => setSelectedBuilding(type));
+
     // Periodic state poller for hook charging bar and build mode
     const pollInterval = window.setInterval(() => {
       if (engineRef.current) {
         setHookState(engineRef.current.hookState);
         setHookPower(engineRef.current.hookPower);
-        setIsBuildMode(engineRef.current.isBuildMode);
-        setIsDemolishMode(engineRef.current.isDemolishMode);
-        setSelectedBuilding(engineRef.current.selectedBuildingType);
+        setIsBuildMode(engineRef.current.build.isBuildMode);
+        setIsDemolishMode(engineRef.current.build.isDemolishMode);
+        setSelectedBuilding(engineRef.current.build.selectedBuildingType);
         setSharkDefeatedOnce(engineRef.current.sharkSystem.sharkDefeatedOnce);
       }
     }, 50);
@@ -180,6 +183,7 @@ export default function App() {
 
     return () => {
       window.clearInterval(pollInterval);
+      offBuildingSelect();
       document.removeEventListener('pointerlockchange', onPointerLockChange);
       window.removeEventListener('keydown', onKeyDown);
       engine.dispose();
@@ -213,7 +217,7 @@ export default function App() {
   const handleSelectBuilding = (b: BuildingType) => {
     setSelectedBuilding(b);
     if (engineRef.current) {
-      engineRef.current.selectBuildingType(b);
+      engineRef.current.build.selectBuildingType(b);
       setIsBuildMode(true);
       setIsDemolishMode(false);
     }
@@ -221,8 +225,8 @@ export default function App() {
 
   const handleToggleBuildMode = () => {
     if (!engineRef.current) return;
-    engineRef.current.isBuildMode = !engineRef.current.isBuildMode;
-    setIsBuildMode(engineRef.current.isBuildMode);
+    engineRef.current.build.isBuildMode = !engineRef.current.build.isBuildMode;
+    setIsBuildMode(engineRef.current.build.isBuildMode);
   };
 
   const handleCraftRecipe = (recipeId: string) => {

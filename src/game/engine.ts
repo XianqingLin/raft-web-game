@@ -21,24 +21,9 @@ import {
   BLOCK_SIZE,
   BLOCK_HEIGHT,
   WALL_HEIGHT,
-  createFoundationMesh,
-  createCollectionNetMesh,
-  createTriFoundationMesh,
-  createPillarMesh,
-  createFloorMesh,
-  createStairsMesh,
-  createWallMesh,
-  createFenceMesh,
-  createPurifierMesh,
-  createGrillMesh,
-  createCropPlotMesh,
-  createChestMesh,
-  createSailMesh,
-  createBedMesh,
   createDebrisMesh,
   createFPSTool,
   createGrapplingHookMesh,
-  createDebrisCompactorMesh,
   createMerchantRaftMesh,
 } from './models';
 import { createOceanEnvironment, OceanEnvironment } from './ocean';
@@ -49,6 +34,7 @@ import { MultiplayerClient } from './multiplayer';
 import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from './storage';
 import { SharkSystem } from './shark';
 import { InventorySystem } from './inventory';
+import { BuildSystem } from './build';
 import { events } from '../core/events';
 
 export interface GameCallbacks {
@@ -64,7 +50,6 @@ export interface GameCallbacks {
   onOpenChest: (chest: PlacedStructure | null) => void;
   onTimeChange: (day: number, timeStr: string, progress: number) => void;
   onWeatherChange?: (weather: WeatherType) => void;
-  onBuildingSelect?: (b: BuildingType) => void;
   onToggleInventory?: () => void;
   onMultiplayerStatusChange?: (status: 'connecting' | 'connected' | 'disconnected' | 'offline') => void;
   onMultiplayerPlayersChange?: (players: RemotePlayer[]) => void;
@@ -116,9 +101,8 @@ export class RaftEngine {
     } as PlayerStats,
   };
 
-  // Raft Structures
-  public structures: Map<string, PlacedStructure> = new Map();
-  public raftGroup: THREE.Group = new THREE.Group();
+  // Raft Build System (owns structures map, build mode, hologram, collision)
+  public build: BuildSystem;
 
   // Floating Debris
   public debrisList: DebrisObject[] = [];
@@ -136,23 +120,7 @@ export class RaftEngine {
   public fpsToolContainer: THREE.Group = new THREE.Group();
   private currentToolModel: THREE.Group | null = null;
 
-  // Build Mode
-  public isBuildMode = false;
-  public selectedBuildingType: BuildingType = 'foundation';
-  public buildRotation = 0; // 0, 1, 2, 3
-  public ghostMesh: THREE.Group | null = null;
-  public ghostSnapCoord: {
-    gx: number;
-    gy: number;
-    gz: number;
-    posX?: number;
-    posY?: number;
-    posZ?: number;
-    rot?: number;
-    valid?: boolean;
-    error?: string;
-  } | null = null;
-  public isDemolishMode = false;
+  // Build Mode state moved to BuildSystem (this.build)
 
   // Input & Controls
   public keys: Record<string, boolean> = {};
@@ -179,7 +147,6 @@ export class RaftEngine {
   // Animation frame id & Multiplayer
   private frameId: number = 0;
   private clock = new THREE.Clock();
-  private driftSpeedMultiplier = 1.0;
   public multiplayer: MultiplayerClient;
   private autoSaveTimer: any = null;
   private lastNetMoveSendTime: number = 0;
@@ -208,16 +175,14 @@ export class RaftEngine {
       },
       player: this.player,
       onReadyToBuild: (building) => {
-        this.isBuildMode = true;
-        this.selectedBuildingType = building;
+        this.build.enterBuildMode(building);
       },
       onToolSlotChanged: (itemId) => {
         this.updateEquippedTool();
         if (itemId === 'hammer') {
-          this.isBuildMode = true;
-        } else if (this.isBuildMode) {
-          this.isBuildMode = false;
-          this.destroyGhostMesh();
+          this.build.enterBuildMode();
+        } else if (this.build.isBuildMode) {
+          this.build.exitBuildMode();
         }
         if (itemId !== 'fishing_rod' && this.fishingSystem && this.fishingSystem.state !== 'IDLE') {
           this.fishingSystem.reset();
@@ -242,7 +207,6 @@ export class RaftEngine {
 
     // Ocean & Lighting
     this.oceanEnv = createOceanEnvironment(this.scene);
-    this.scene.add(this.raftGroup);
 
     // Dynamic Weather System (Clear, Light Fog, Heavy Rain)
     this.weatherSystem = createWeatherSystem(
@@ -296,7 +260,7 @@ export class RaftEngine {
       onStatusChange: (status) => this.callbacks.onMultiplayerStatusChange?.(status),
       onPlayersChange: (players) => this.callbacks.onMultiplayerPlayersChange?.(players),
       onRemoteStructurePlaced: (struct) => {
-        this.placeStructure(
+        this.build.placeStructure(
           struct.type as BuildingType,
           struct.gx,
           struct.gy,
@@ -305,20 +269,16 @@ export class RaftEngine {
           false,
           struct.posX !== undefined ? { x: struct.posX, y: struct.posY!, z: struct.posZ! } : undefined
         );
-        const placed = this.structures.get(struct.id);
+        const placed = this.build.structures.get(struct.id);
         if (placed && struct.data) {
           placed.data = { ...placed.data, ...struct.data };
         }
       },
       onRemoteStructureDemolished: (id) => {
-        const s = this.structures.get(id);
-        if (s) {
-          this.raftGroup.remove(s.mesh);
-          this.structures.delete(id);
-        }
+        this.build.removeStructure(id);
       },
       onRemoteStructureUpdated: (id, data) => {
-        const s = this.structures.get(id);
+        const s = this.build.structures.get(id);
         if (s) {
           s.data = { ...s.data, ...data };
         }
@@ -354,13 +314,25 @@ export class RaftEngine {
       onToast: (msg, color) => this.callbacks.onToast(msg, color),
     });
 
+    // Raft Build System: owns structures map, placement/demolition, build mode,
+    // hologram, support/collision queries and structure serialization.
+    this.build = new BuildSystem({
+      scene: this.scene,
+      camera: this.camera,
+      player: this.player,
+      inventory: this.inventorySystem,
+      multiplayer: this.multiplayer,
+      onSave: () => this.saveWorld(false),
+      getIslandHeight: (x, z) => this.islandManager.getHeightAt(x, z),
+    });
+
     // Shark AI & Combat System (Bruce)
     this.sharkSystem = new SharkSystem({
       scene: this.scene,
       camera: this.camera,
       player: this.player,
-      structures: this.structures,
-      raftGroup: this.raftGroup,
+      structures: this.build.structures,
+      raftGroup: this.build.raftGroup,
       multiplayer: this.multiplayer,
       callbacks: {
         onToast: (text, color) => this.callbacks.onToast(text, color),
@@ -380,7 +352,7 @@ export class RaftEngine {
       this.loadWorld(savedWorld);
       this.callbacks.onToast(`📂 World restored from previous save! (Day ${savedWorld.dayCount || 1})`, '#38bdf8');
     } else {
-      this.createInitialRaft();
+      this.build.createInitialRaft();
     }
 
     // Connect to Multiplayer World
@@ -410,311 +382,6 @@ export class RaftEngine {
     // Start loop
     this.animate = this.animate.bind(this);
     this.frameId = requestAnimationFrame(this.animate);
-  }
-
-  private createInitialRaft() {
-    // 2x2 wooden foundation core
-    const coords = [
-      [0, 0],
-      [1, 0],
-      [0, 1],
-      [1, 1],
-    ];
-    coords.forEach(([gx, gz]) => {
-      this.placeStructure('foundation', gx, 0, gz, 0, false);
-    });
-  }
-
-  public getFoundationAt(gx: number, gz: number): PlacedStructure | undefined {
-    return Array.from(this.structures.values()).find(
-      (s) =>
-        (s.type === 'foundation' || s.type === 'tri_foundation' || s.type === 'collection_net') &&
-        s.gx === gx &&
-        s.gz === gz
-    );
-  }
-
-  public hasFoundationAt(gx: number, gz: number): boolean {
-    return !!this.getFoundationAt(gx, gz);
-  }
-
-  public hasFloorAt(gx: number, gz: number): boolean {
-    return Array.from(this.structures.values()).some((s) => s.type === 'floor' && s.gx === gx && s.gz === gz);
-  }
-
-  public hasPillarAt(gx: number, gz: number): boolean {
-    return Array.from(this.structures.values()).some((s) => s.type === 'pillar' && s.gx === gx && s.gz === gz);
-  }
-
-  /**
-   * Support rule for Upper Deck Floor Planks:
-   * Supported if within 2 planks radius of a Support Pillar (Beam), Wooden Wall, Window Wall,
-   * or connected adjacent Upper Deck Floor!
-   */
-  public isSupportedForUpperDeck(gx: number, gz: number, radius: number = 2): boolean {
-    for (const s of this.structures.values()) {
-      if (s.type === 'pillar') {
-        const dx = Math.abs(gx - s.gx);
-        const dz = Math.abs(gz - s.gz);
-        if (dx <= radius && dz <= radius) return true;
-      } else if (s.type === 'wall' || s.type === 'window_wall') {
-        // Walls and Window Walls are the same height as beams and support planks on top!
-        const wx = Math.round(s.mesh.position.x / BLOCK_SIZE);
-        const wz = Math.round(s.mesh.position.z / BLOCK_SIZE);
-        const dx = Math.abs(gx - wx);
-        const dz = Math.abs(gz - wz);
-        if (dx <= radius && dz <= radius) return true;
-      } else if (s.type === 'floor') {
-        // Connected upper deck floor within 1 tile
-        const dx = Math.abs(gx - s.gx);
-        const dz = Math.abs(gz - s.gz);
-        if (dx <= 1 && dz <= 1 && (dx + dz <= 1)) return true;
-      }
-    }
-    return false;
-  }
-
-  public isSupportedByPillar(gx: number, gz: number, radius: number = 2): boolean {
-    return this.isSupportedForUpperDeck(gx, gz, radius);
-  }
-
-  public getStructureAt(type: BuildingType, gx: number, gz: number): PlacedStructure | undefined {
-    return Array.from(this.structures.values()).find((s) => s.type === type && s.gx === gx && s.gz === gz);
-  }
-
-  public getStructuresAtCoord(gx: number, gz: number): PlacedStructure[] {
-    return Array.from(this.structures.values()).filter((s) => s.gx === gx && s.gz === gz);
-  }
-
-  public placeStructure(
-    type: BuildingType,
-    gx: number,
-    gy: number,
-    gz: number,
-    rot: number = 0,
-    checkCost: boolean = true,
-    customPos?: { x: number; y: number; z: number },
-    customId?: string
-  ): boolean {
-    const isFoundationType =
-      type === 'foundation' ||
-      type === 'tri_foundation' ||
-      type === 'collection_net';
-
-    let posX = gx * BLOCK_SIZE;
-    let posY = BLOCK_HEIGHT / 2;
-    let posZ = gz * BLOCK_SIZE;
-
-    if (isFoundationType) {
-      posY = 0;
-    } else if (type === 'floor') {
-      // Sits directly on top of the support beam, wall, or window wall!
-      posY = BLOCK_HEIGHT / 2 + WALL_HEIGHT;
-      if (checkCost && !this.isSupportedForUpperDeck(gx, gz, 2)) {
-        this.callbacks.onToast('Requires a Support Beam, Wall, or Window Wall within 2 planks radius!', '#ef4444');
-        return false;
-      }
-    } else if (customPos) {
-      posX = customPos.x;
-      posY = customPos.y;
-      posZ = customPos.z;
-    }
-
-    const key =
-      customId ||
-      (isFoundationType
-        ? `${type}_${gx}_${gz}`
-        : type === 'wall' || type === 'window_wall' || type === 'fence'
-          ? `${type}_${posX.toFixed(1)}_${posY.toFixed(1)}_${posZ.toFixed(1)}`
-          : `${type}_${gx}_${gy}_${gz}`);
-
-    if (this.structures.has(key)) {
-      if (checkCost) {
-        this.callbacks.onToast('A structure of this type already exists here!', '#f59e0b');
-      }
-      return false;
-    }
-
-    const def = BUILDING_DEFINITIONS[type];
-    if (checkCost && def) {
-      if (!this.inventorySystem.canAfford(def.cost)) {
-        this.callbacks.onToast('Not enough resources to build!', '#ef4444');
-        return false;
-      }
-      this.inventorySystem.deductCost(def.cost);
-    }
-
-    let mesh: THREE.Group;
-    switch (type) {
-      case 'foundation':
-        mesh = createFoundationMesh();
-        break;
-      case 'collection_net':
-        mesh = createCollectionNetMesh();
-        break;
-      case 'tri_foundation':
-        mesh = createTriFoundationMesh();
-        break;
-      case 'pillar':
-        mesh = createPillarMesh();
-        break;
-      case 'floor':
-        mesh = createFloorMesh();
-        break;
-      case 'stairs':
-        mesh = createStairsMesh();
-        break;
-      case 'wall':
-        mesh = createWallMesh(false);
-        break;
-      case 'window_wall':
-        mesh = createWallMesh(true);
-        break;
-      case 'fence':
-        mesh = createFenceMesh();
-        break;
-      case 'purifier':
-        mesh = createPurifierMesh();
-        break;
-      case 'grill':
-        mesh = createGrillMesh();
-        break;
-      case 'crop_plot':
-        mesh = createCropPlotMesh();
-        break;
-      case 'chest':
-        mesh = createChestMesh();
-        break;
-      case 'sail':
-        mesh = createSailMesh();
-        break;
-      case 'bed':
-        mesh = createBedMesh();
-        break;
-      case 'debris_compactor':
-        mesh = createDebrisCompactorMesh();
-        break;
-      default:
-        mesh = createFoundationMesh();
-    }
-
-    mesh.position.set(posX, posY, posZ);
-    mesh.rotation.y = (rot * Math.PI) / 2;
-
-    this.raftGroup.add(mesh);
-
-    const placed: PlacedStructure = {
-      id: key,
-      type,
-      gx,
-      gy,
-      gz,
-      rotation: rot,
-      health: 100,
-      maxHealth: 100,
-      mesh,
-      data: {
-        purifierSaltWater: false,
-        purifierFreshWater: false,
-        purifierBoilProgress: 0,
-        grillItem: null,
-        grillProgress: 0,
-        grillDone: false,
-        cropPlanted: false,
-        cropGrowProgress: 0,
-        trappedItems: [],
-        chestItems: Array.from({ length: 12 }, () => ({ itemId: null, count: 0 })),
-      },
-    };
-
-    this.structures.set(key, placed);
-
-    if (checkCost) {
-      soundManager.playHammerBuild();
-      this.callbacks.onToast(`Built ${def.name}!`, '#22c55e');
-
-      // Broadcast to multiplayer room
-      if (this.multiplayer?.isConnected) {
-        this.multiplayer.broadcastStructurePlaced({
-          id: key,
-          type,
-          gx,
-          gy,
-          gz,
-          rotation: rot,
-          health: 100,
-          maxHealth: 100,
-          posX,
-          posY,
-          posZ,
-          data: placed.data,
-        });
-      }
-      this.saveWorld(false);
-    }
-
-    // Update sail bonus & signal array placement state
-    this.updateSailSpeed();
-    return true;
-  }
-
-  public demolishAt(gx: number, gz: number) {
-    const items = this.getStructuresAtCoord(gx, gz);
-    if (items.length === 0) return;
-
-    // Prioritize non-foundation item on top (e.g. purifier, pillar, wall, etc.)
-    let target = items.find(
-      (s) => s.type !== 'foundation' && s.type !== 'tri_foundation' && s.type !== 'collection_net'
-    );
-    if (!target) target = items[0];
-
-    if (
-      (target.type === 'foundation' || target.type === 'tri_foundation' || target.type === 'collection_net') &&
-      this.countFoundations() <= 1
-    ) {
-      this.callbacks.onToast('Cannot demolish your last foundation plank!', '#ef4444');
-      return;
-    }
-
-    // Refund 50%
-    const def = BUILDING_DEFINITIONS[target.type];
-    if (def) {
-      Object.entries(def.cost).forEach(([res, count]) => {
-        const refundCount = Math.max(1, Math.floor((count || 1) / 2));
-        this.inventorySystem.addItemToInventory(res as ResourceId, refundCount);
-      });
-    }
-
-    this.raftGroup.remove(target.mesh);
-    this.structures.delete(target.id);
-    soundManager.playHammerBuild();
-    this.callbacks.onToast(`Demolished ${def?.name || 'Structure'} (+Refund)`, '#f59e0b');
-
-    // Broadcast demolition
-    if (this.multiplayer?.isConnected) {
-      this.multiplayer.broadcastStructureDemolished(target.id);
-    }
-    this.saveWorld(false);
-
-    this.updateSailSpeed();
-  }
-
-  private countFoundations(): number {
-    let count = 0;
-    this.structures.forEach((s) => {
-      if (s.type === 'foundation' || s.type === 'collection_net' || s.type === 'tri_foundation') {
-        count++;
-      }
-    });
-    return count;
-  }
-
-  private updateSailSpeed() {
-    let sailCount = 0;
-    this.structures.forEach((s) => {
-      if (s.type === 'sail') sailCount++;
-    });
-    this.driftSpeedMultiplier = 1.0 + Math.min(2.5, sailCount * 0.5);
   }
 
   // Debris Spawning & Collection
@@ -777,47 +444,6 @@ export class RaftEngine {
     this.fpsToolContainer.add(this.currentToolModel);
   }
 
-  public readonly BUILDING_TYPES: BuildingType[] = [
-    'foundation',
-    'tri_foundation',
-    'collection_net',
-    'pillar',
-    'floor',
-    'stairs',
-    'wall',
-    'window_wall',
-    'fence',
-    'purifier',
-    'grill',
-    'crop_plot',
-    'chest',
-    'sail',
-    'bed',
-    'debris_compactor',
-  ];
-
-  public cycleBuildingPiece(dir: number) {
-    const idx = this.BUILDING_TYPES.indexOf(this.selectedBuildingType);
-    let nextIdx = idx + dir;
-    if (nextIdx < 0) nextIdx = this.BUILDING_TYPES.length - 1;
-    if (nextIdx >= this.BUILDING_TYPES.length) nextIdx = 0;
-    this.selectBuildingType(this.BUILDING_TYPES[nextIdx]);
-  }
-
-  public selectBuildingType(type: BuildingType) {
-    this.selectedBuildingType = type;
-    this.isBuildMode = true;
-    this.isDemolishMode = false;
-    this.destroyGhostMesh();
-    this.createGhostMesh();
-    soundManager.playReelClick();
-    this.callbacks.onBuildingSelect?.(type);
-    const def = BUILDING_DEFINITIONS[type];
-    if (def) {
-      this.callbacks.onToast(`Selected: ${def.name}`, '#38bdf8');
-    }
-  }
-
   // Setup Event Handlers
   private setupEventListeners() {
     window.addEventListener('keydown', (e) => {
@@ -836,27 +462,17 @@ export class RaftEngine {
 
       // Toggle Build Mode: B
       if (e.code === 'KeyB') {
-        this.isBuildMode = !this.isBuildMode;
-        if (!this.isBuildMode) this.destroyGhostMesh();
-        else {
-          this.destroyGhostMesh();
-          this.createGhostMesh();
-        }
-        this.callbacks.onToast(this.isBuildMode ? 'Build Mode Enabled' : 'Build Mode Disabled', '#38bdf8');
+        this.build.toggleBuildMode();
       }
 
       // Rotate Building Piece: R
-      if (e.code === 'KeyR' && this.isBuildMode) {
-        this.buildRotation = (this.buildRotation + 1) % 4;
-        if (this.ghostMesh) {
-          this.ghostMesh.rotation.y = (this.buildRotation * Math.PI) / 2;
-        }
+      if (e.code === 'KeyR' && this.build.isBuildMode) {
+        this.build.rotatePiece();
       }
 
       // Toggle Demolish Mode: X
-      if (e.code === 'KeyX' && this.isBuildMode) {
-        this.isDemolishMode = !this.isDemolishMode;
-        this.callbacks.onToast(this.isDemolishMode ? 'Demolish Tool Active' : 'Build Tool Active', '#f59e0b');
+      if (e.code === 'KeyX' && this.build.isBuildMode) {
+        this.build.toggleDemolishMode();
       }
 
       // Interact Key: E
@@ -886,11 +502,11 @@ export class RaftEngine {
 
     window.addEventListener('wheel', (e) => {
       if (!this.isPointerLocked) return;
-      if (this.isBuildMode) {
+      if (this.build.isBuildMode) {
         // Scroll through building materials!
         e.preventDefault();
         const dir = e.deltaY > 0 ? 1 : -1;
-        this.cycleBuildingPiece(dir);
+        this.build.cycleBuildingPiece(dir);
       } else {
         if (e.deltaY > 0) {
           this.inventorySystem.setActiveHotbarSlot((this.activeHotbarIdx + 1) % this.hotbar.length);
@@ -908,9 +524,8 @@ export class RaftEngine {
         this.handleLeftClickDown();
       } else if (e.button === 2) {
         // Right Click: cancel build mode or ghost
-        if (this.isBuildMode) {
-          this.isBuildMode = false;
-          this.destroyGhostMesh();
+        if (this.build.isBuildMode) {
+          this.build.exitBuildMode();
         }
       }
     });
@@ -927,25 +542,6 @@ export class RaftEngine {
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
-  }
-
-  // Raycast helper to find structure directly aimed at under crosshair
-  public getStructureUnderCrosshair(): PlacedStructure | null {
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
-    const hits = this.raycaster.intersectObjects(this.raftGroup.children, true);
-    for (const hit of hits) {
-      if (hit.distance > 3.6) continue;
-      let curr: THREE.Object3D | null = hit.object;
-      while (curr && curr !== this.raftGroup) {
-        for (const [_, s] of this.structures) {
-          if (s.mesh === curr) {
-            return s;
-          }
-        }
-        curr = curr.parent;
-      }
-    }
-    return null;
   }
 
   // Unified Smart Structure Interaction (Grill, Purifier, Crop Plot, Collection Net, Chest, Bed, Compactor, Receiver)
@@ -1256,38 +852,8 @@ export class RaftEngine {
     const activeSlot = this.hotbar[this.activeHotbarIdx];
 
     // 1. Build Mode: Place piece or Demolish
-    if (this.isBuildMode) {
-      if (this.isDemolishMode && this.ghostSnapCoord) {
-        this.demolishAt(this.ghostSnapCoord.gx, this.ghostSnapCoord.gz);
-      } else if (this.ghostSnapCoord) {
-        if (this.ghostSnapCoord.valid === false) {
-          if (this.ghostSnapCoord.error) {
-            this.callbacks.onToast(this.ghostSnapCoord.error, '#ef4444');
-          }
-          return;
-        }
-
-        const rotToUse = this.ghostSnapCoord.rot !== undefined ? this.ghostSnapCoord.rot : this.buildRotation;
-        const customPos =
-          this.ghostSnapCoord.posX !== undefined && this.ghostSnapCoord.posZ !== undefined
-            ? { x: this.ghostSnapCoord.posX, y: this.ghostSnapCoord.posY || 0, z: this.ghostSnapCoord.posZ }
-            : undefined;
-
-        let typeToPlace = this.selectedBuildingType;
-        if (this.selectedBuildingType === 'foundation' || this.selectedBuildingType === 'floor') {
-          typeToPlace = this.ghostSnapCoord.gy === 1 ? 'floor' : 'foundation';
-        }
-
-        this.placeStructure(
-          typeToPlace,
-          this.ghostSnapCoord.gx,
-          this.ghostSnapCoord.gy,
-          this.ghostSnapCoord.gz,
-          rotToUse,
-          true,
-          customPos
-        );
-      }
+    if (this.build.isBuildMode) {
+      this.build.tryPlace();
       return;
     }
 
@@ -1312,7 +878,7 @@ export class RaftEngine {
     }
 
     // 4. Left click on raft structures (Grill, Purifier, Crop Plot, Collection Net, Chest, Compactor, Receiver)
-    const targetStructure = this.aimedInteractable?.structure || this.getStructureUnderCrosshair();
+    const targetStructure = this.aimedInteractable?.structure || this.build.getStructureUnderCrosshair();
     if (targetStructure) {
       const handled = this.interactWithStructure(targetStructure);
       if (handled) return;
@@ -1441,503 +1007,6 @@ export class RaftEngine {
     }
   }
 
-  // Build Mode Hologram Preview
-  private updateBuildHologram() {
-    if (!this.isBuildMode) {
-      this.destroyGhostMesh();
-      this.ghostSnapCoord = null;
-      return;
-    }
-
-    if (!this.ghostMesh) {
-      this.createGhostMesh();
-    }
-
-    // Raycast forward from camera
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
-    const buildPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const hitPt = new THREE.Vector3();
-    const hit = this.raycaster.ray.intersectPlane(buildPlane, hitPt);
-
-    if (hit && hitPt.distanceTo(this.player.pos) < 14) {
-      const gx = Math.round(hitPt.x / BLOCK_SIZE);
-      const gz = Math.round(hitPt.z / BLOCK_SIZE);
-      const def = BUILDING_DEFINITIONS[this.selectedBuildingType];
-      const canAfford = this.inventorySystem.canAfford(def.cost);
-
-      const isPlankType = this.selectedBuildingType === 'foundation' || this.selectedBuildingType === 'floor';
-      const isTriOrNet = this.selectedBuildingType === 'tri_foundation' || this.selectedBuildingType === 'collection_net';
-
-      const hasFoundationHere = this.hasFoundationAt(gx, gz);
-      const hasFloorHere = this.hasFloorAt(gx, gz);
-
-      if (this.isDemolishMode) {
-        const items = this.getStructuresAtCoord(gx, gz);
-        if (items.length > 0) {
-          this.ghostSnapCoord = { gx, gy: 0, gz, valid: true };
-          this.ghostMesh!.position.set(gx * BLOCK_SIZE, 0, gz * BLOCK_SIZE);
-          this.ghostMesh!.visible = true;
-          this.setGhostColor(0xef4444); // Red for demolish
-          return;
-        }
-      } else if (isPlankType) {
-        // Wooden Planks: acts as BOTH Upper Deck and Lower Deck!
-        // If player is on upper deck or aiming upward / on top of beams/walls:
-        const isUpperDeckIntent =
-          this.player.pos.y > 2.0 ||
-          (hasFoundationHere && !hasFloorHere && (this.camera.rotation.x > -0.25 || this.isSupportedForUpperDeck(gx, gz, 2)));
-
-        if (isUpperDeckIntent) {
-          // Upper Deck Floor placement atop Beams, Walls, or Window Walls
-          const targetY = BLOCK_HEIGHT / 2 + WALL_HEIGHT;
-          const isSupported = this.isSupportedForUpperDeck(gx, gz, 2);
-          const alreadyFloor = hasFloorHere;
-
-          if (!alreadyFloor) {
-            this.ghostMesh!.position.set(gx * BLOCK_SIZE, targetY, gz * BLOCK_SIZE);
-            this.ghostMesh!.rotation.y = (this.buildRotation * Math.PI) / 2;
-            this.ghostMesh!.visible = true;
-
-            if (!isSupported) {
-              this.setGhostColor(0xef4444);
-              this.ghostSnapCoord = {
-                gx,
-                gy: 1,
-                gz,
-                posX: gx * BLOCK_SIZE,
-                posY: targetY,
-                posZ: gz * BLOCK_SIZE,
-                rot: this.buildRotation,
-                valid: false,
-                error: 'Requires a Beam, Wall, or Window Wall support within 2 planks radius!',
-              };
-            } else {
-              this.setGhostColor(canAfford ? 0x22c55e : 0xf87171);
-              this.ghostSnapCoord = {
-                gx,
-                gy: 1,
-                gz,
-                posX: gx * BLOCK_SIZE,
-                posY: targetY,
-                posZ: gz * BLOCK_SIZE,
-                rot: this.buildRotation,
-                valid: canAfford,
-              };
-            }
-            return;
-          }
-        }
-
-        // Lower Deck Foundation placement on water plane
-        if (!hasFoundationHere && this.isAdjacentToRaft(gx, gz)) {
-          this.ghostSnapCoord = {
-            gx,
-            gy: 0,
-            gz,
-            posX: gx * BLOCK_SIZE,
-            posY: 0,
-            posZ: gz * BLOCK_SIZE,
-            rot: this.buildRotation,
-            valid: canAfford,
-          };
-          this.ghostMesh!.position.set(gx * BLOCK_SIZE, 0, gz * BLOCK_SIZE);
-          this.ghostMesh!.rotation.y = (this.buildRotation * Math.PI) / 2;
-          this.ghostMesh!.visible = true;
-          this.setGhostColor(canAfford ? 0x22c55e : 0xf87171);
-          return;
-        }
-      } else if (isTriOrNet) {
-        // Corner triangle and collection nets on water
-        if (!hasFoundationHere && this.isAdjacentToRaft(gx, gz)) {
-          this.ghostSnapCoord = {
-            gx,
-            gy: 0,
-            gz,
-            posX: gx * BLOCK_SIZE,
-            posY: 0,
-            posZ: gz * BLOCK_SIZE,
-            rot: this.buildRotation,
-            valid: canAfford,
-          };
-          this.ghostMesh!.position.set(gx * BLOCK_SIZE, 0, gz * BLOCK_SIZE);
-          this.ghostMesh!.rotation.y = (this.buildRotation * Math.PI) / 2;
-          this.ghostMesh!.visible = true;
-          this.setGhostColor(canAfford ? 0x22c55e : 0xf87171);
-          return;
-        }
-      } else if (
-        this.selectedBuildingType === 'wall' ||
-        this.selectedBuildingType === 'window_wall' ||
-        this.selectedBuildingType === 'fence'
-      ) {
-        // Edge placement on foundation or upper floor!
-        if (hasFoundationHere || hasFloorHere) {
-          const cellCenterX = gx * BLOCK_SIZE;
-          const cellCenterZ = gz * BLOCK_SIZE;
-          const lx = hitPt.x - cellCenterX;
-          const lz = hitPt.z - cellCenterZ;
-
-          let edgeX = cellCenterX;
-          let edgeZ = cellCenterZ;
-          let edgeRot = 0;
-
-          if (Math.abs(lz) >= Math.abs(lx)) {
-            if (lz < 0) {
-              // North edge
-              edgeZ = cellCenterZ - BLOCK_SIZE / 2;
-              edgeRot = 0;
-            } else {
-              // South edge
-              edgeZ = cellCenterZ + BLOCK_SIZE / 2;
-              edgeRot = 2;
-            }
-          } else {
-            if (lx >= 0) {
-              // East edge
-              edgeX = cellCenterX + BLOCK_SIZE / 2;
-              edgeRot = 1;
-            } else {
-              // West edge
-              edgeX = cellCenterX - BLOCK_SIZE / 2;
-              edgeRot = 3;
-            }
-          }
-
-          const targetY = hasFloorHere && this.player.pos.y > 2.0 ? BLOCK_HEIGHT / 2 + WALL_HEIGHT : BLOCK_HEIGHT / 2;
-          const edgeKey = `${this.selectedBuildingType}_${edgeX.toFixed(1)}_${targetY.toFixed(1)}_${edgeZ.toFixed(1)}`;
-          const alreadyPlaced = this.structures.has(edgeKey);
-
-          this.ghostMesh!.position.set(edgeX, targetY, edgeZ);
-          this.ghostMesh!.rotation.y = (edgeRot * Math.PI) / 2;
-          this.ghostMesh!.visible = true;
-
-          if (alreadyPlaced) {
-            this.setGhostColor(0xef4444);
-            this.ghostSnapCoord = {
-              gx,
-              gy: targetY > 1 ? 1 : 0,
-              gz,
-              posX: edgeX,
-              posY: targetY,
-              posZ: edgeZ,
-              rot: edgeRot,
-              valid: false,
-              error: 'A wall already exists on this edge!',
-            };
-          } else {
-            this.setGhostColor(canAfford ? 0x22c55e : 0xf87171);
-            this.ghostSnapCoord = {
-              gx,
-              gy: targetY > 1 ? 1 : 0,
-              gz,
-              posX: edgeX,
-              posY: targetY,
-              posZ: edgeZ,
-              rot: edgeRot,
-              valid: canAfford,
-            };
-          }
-          return;
-        }
-      } else {
-        // Deployables, pillars, stairs: snap to center of supported tile
-        const canPlace = hasFoundationHere || (hasFloorHere && this.selectedBuildingType !== 'stairs');
-        const alreadyHasThis = !!this.getStructureAt(this.selectedBuildingType, gx, gz);
-
-        if (canPlace && !alreadyHasThis) {
-          const targetY =
-            hasFloorHere && this.player.pos.y > 2.0 && this.selectedBuildingType !== 'pillar'
-              ? BLOCK_HEIGHT / 2 + WALL_HEIGHT
-              : BLOCK_HEIGHT / 2;
-
-          this.ghostMesh!.position.set(gx * BLOCK_SIZE, targetY, gz * BLOCK_SIZE);
-          this.ghostMesh!.rotation.y = (this.buildRotation * Math.PI) / 2;
-          this.ghostMesh!.visible = true;
-          this.setGhostColor(canAfford ? 0x22c55e : 0xf87171);
-
-          this.ghostSnapCoord = {
-            gx,
-            gy: targetY > 1 ? 1 : 0,
-            gz,
-            posX: gx * BLOCK_SIZE,
-            posY: targetY,
-            posZ: gz * BLOCK_SIZE,
-            rot: this.buildRotation,
-            valid: canAfford,
-          };
-          return;
-        }
-      }
-    }
-
-    if (this.ghostMesh) this.ghostMesh.visible = false;
-    this.ghostSnapCoord = null;
-  }
-
-  private isAdjacentToRaft(gx: number, gz: number): boolean {
-    const neighbors = [
-      [gx + 1, gz],
-      [gx - 1, gz],
-      [gx, gz + 1],
-      [gx, gz - 1],
-    ];
-    return neighbors.some(([nx, nz]) => this.hasFoundationAt(nx, nz));
-  }
-
-  private createGhostMesh() {
-    let sourceMesh: THREE.Group;
-    switch (this.selectedBuildingType) {
-      case 'foundation':
-        sourceMesh = createFoundationMesh();
-        break;
-      case 'collection_net':
-        sourceMesh = createCollectionNetMesh();
-        break;
-      case 'tri_foundation':
-        sourceMesh = createTriFoundationMesh();
-        break;
-      case 'pillar':
-        sourceMesh = createPillarMesh();
-        break;
-      case 'floor':
-        sourceMesh = createFloorMesh();
-        break;
-      case 'stairs':
-        sourceMesh = createStairsMesh();
-        break;
-      case 'wall':
-        sourceMesh = createWallMesh(false);
-        break;
-      case 'window_wall':
-        sourceMesh = createWallMesh(true);
-        break;
-      case 'fence':
-        sourceMesh = createFenceMesh();
-        break;
-      case 'purifier':
-        sourceMesh = createPurifierMesh();
-        break;
-      case 'grill':
-        sourceMesh = createGrillMesh();
-        break;
-      case 'crop_plot':
-        sourceMesh = createCropPlotMesh();
-        break;
-      case 'chest':
-        sourceMesh = createChestMesh();
-        break;
-      case 'sail':
-        sourceMesh = createSailMesh();
-        break;
-      case 'bed':
-        sourceMesh = createBedMesh();
-        break;
-      case 'debris_compactor':
-        sourceMesh = createDebrisCompactorMesh();
-        break;
-      default:
-        sourceMesh = createFoundationMesh();
-    }
-
-    this.ghostMesh = new THREE.Group();
-    const ghostMat = new THREE.MeshBasicMaterial({
-      color: 0x22c55e,
-      transparent: true,
-      opacity: 0.45,
-    });
-
-    sourceMesh.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        const ghostPart = new THREE.Mesh(child.geometry, ghostMat.clone());
-        ghostPart.position.copy(child.position);
-        ghostPart.rotation.copy(child.rotation);
-        ghostPart.scale.copy(child.scale);
-        this.ghostMesh!.add(ghostPart);
-      }
-    });
-
-    this.ghostMesh.rotation.y = (this.buildRotation * Math.PI) / 2;
-    this.scene.add(this.ghostMesh);
-  }
-
-  private setGhostColor(hex: number) {
-    if (!this.ghostMesh) return;
-    this.ghostMesh.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        (child.material as THREE.MeshBasicMaterial).color.setHex(hex);
-      }
-    });
-  }
-
-  private destroyGhostMesh() {
-    if (this.ghostMesh) {
-      this.scene.remove(this.ghostMesh);
-      this.ghostMesh = null;
-    }
-  }
-
-  // Raft Floor Collision Check
-  public checkOnRaft(x: number, z: number): boolean {
-    const gx = Math.round(x / BLOCK_SIZE);
-    const gz = Math.round(z / BLOCK_SIZE);
-    if (this.hasFoundationAt(gx, gz)) return true;
-
-    // Buffer margin
-    const m = 0.4;
-    const checks = [
-      [x + m, z],
-      [x - m, z],
-      [x, z + m],
-      [x, z - m],
-    ];
-    return checks.some(([cx, cz]) => {
-      const cgx = Math.round(cx / BLOCK_SIZE);
-      const cgz = Math.round(cz / BLOCK_SIZE);
-      return this.hasFoundationAt(cgx, cgz);
-    });
-  }
-
-  /**
-   * Horizontal obstacle collision detection (Walls, Window Walls, Fences, Pillars, Stairs underside).
-   * Prevents walking through walls and solid architecture.
-   */
-  public checkHorizontalCollision(newX: number, newZ: number, playerY: number, radius = 0.28): boolean {
-    const feetY = playerY - 1.7;
-    const headY = playerY + 0.1;
-
-    for (const s of this.structures.values()) {
-      if (s.type === 'wall' || s.type === 'window_wall' || s.type === 'fence') {
-        const obsH = s.type === 'fence' ? 0.95 : WALL_HEIGHT;
-        const obsBottom = s.mesh.position.y;
-        const obsTop = obsBottom + obsH;
-
-        if (headY > obsBottom && feetY < obsTop) {
-          const wx = s.mesh.position.x;
-          const wz = s.mesh.position.z;
-          const rot = s.rotation % 2; // 0 = horizontal (along X), 1 = vertical (along Z)
-
-          if (rot === 0) {
-            const halfW = BLOCK_SIZE / 2;
-            const halfT = 0.16;
-            if (
-              newX >= wx - halfW - radius &&
-              newX <= wx + halfW + radius &&
-              newZ >= wz - halfT - radius &&
-              newZ <= wz + halfT + radius
-            ) {
-              return true;
-            }
-          } else {
-            const halfW = BLOCK_SIZE / 2;
-            const halfT = 0.16;
-            if (
-              newX >= wx - halfT - radius &&
-              newX <= wx + halfT + radius &&
-              newZ >= wz - halfW - radius &&
-              newZ <= wz + halfW + radius
-            ) {
-              return true;
-            }
-          }
-        }
-      } else if (s.type === 'pillar') {
-        const obsBottom = s.mesh.position.y;
-        const obsTop = obsBottom + WALL_HEIGHT;
-        if (headY > obsBottom && feetY < obsTop) {
-          const dx = Math.abs(newX - s.mesh.position.x);
-          const dz = Math.abs(newZ - s.mesh.position.z);
-          if (dx < 0.14 + radius && dz < 0.14 + radius) {
-            return true;
-          }
-        }
-      } else if (s.type === 'stairs') {
-        const sx = s.gx * BLOCK_SIZE;
-        const sz = s.gz * BLOCK_SIZE;
-        const dx = newX - sx;
-        const dz = newZ - sz;
-        const rotAngle = (s.rotation % 4) * (Math.PI / 2);
-        const lx = dx * Math.cos(rotAngle) - dz * Math.sin(rotAngle);
-        const lz = dx * Math.sin(rotAngle) + dz * Math.cos(rotAngle);
-
-        // Underside wall of high steps: cannot walk through back underside of stairs
-        if (lz > 0.25 && lz <= BLOCK_SIZE * 0.52 && feetY < BLOCK_HEIGHT / 2 + 0.6) {
-          if (Math.abs(lx) <= BLOCK_SIZE * 0.44 + radius) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Exact surface height calculator for Player feet.
-   * Seamlessly calculates height across base raft foundations, stairs incline, and second-story upper deck floor.
-   */
-  public calculateSurfaceHeight(px: number, py: number, pz: number, elapsed: number): number {
-    let supportY = -Infinity;
-    const feetY = py - 1.7;
-
-    // 1. Check Foundation / Base Raft
-    if (this.checkOnRaft(px, pz)) {
-      supportY = BLOCK_HEIGHT / 2;
-    }
-
-    // 2. Check Upper Deck Floor (floor)
-    for (const s of this.structures.values()) {
-      if (s.type === 'floor') {
-        const fx = s.gx * BLOCK_SIZE;
-        const fz = s.gz * BLOCK_SIZE;
-        const halfSize = BLOCK_SIZE / 2;
-        if (Math.abs(px - fx) <= halfSize + 0.15 && Math.abs(pz - fz) <= halfSize + 0.15) {
-          const floorTop = BLOCK_HEIGHT / 2 + WALL_HEIGHT + 0.12;
-          if (feetY >= floorTop - 0.75) {
-            supportY = Math.max(supportY, floorTop);
-          }
-        }
-      }
-    }
-
-    // 3. Check Stairs Incline
-    for (const s of this.structures.values()) {
-      if (s.type === 'stairs') {
-        const sx = s.gx * BLOCK_SIZE;
-        const sz = s.gz * BLOCK_SIZE;
-        const dx = px - sx;
-        const dz = pz - sz;
-        const rotAngle = (s.rotation % 4) * (Math.PI / 2);
-        const cosA = Math.cos(rotAngle);
-        const sinA = Math.sin(rotAngle);
-
-        const lx = dx * cosA - dz * sinA;
-        const lz = dx * sinA + dz * cosA;
-
-        if (Math.abs(lx) <= BLOCK_SIZE * 0.48 && Math.abs(lz) <= BLOCK_SIZE * 0.55) {
-          const progress = (lz + BLOCK_SIZE / 2) / BLOCK_SIZE;
-          const t = Math.max(0, Math.min(1, progress));
-          const stairSurface = BLOCK_HEIGHT / 2 + t * WALL_HEIGHT;
-
-          if (feetY >= stairSurface - 0.65) {
-            supportY = Math.max(supportY, stairSurface);
-          }
-        }
-      }
-    }
-
-    // 4. Check Explorable Island Terrain
-    const islandH = this.islandManager.getHeightAt(px, pz);
-    if (islandH > 0.05) {
-      supportY = Math.max(supportY, islandH);
-    }
-
-    if (supportY !== -Infinity) {
-      return supportY + 1.7;
-    }
-
-    // No solid surface in open ocean water - player sinks into water and swims!
-    return -Infinity;
-  }
-
   // Debris Compactor: Feed junk materials (wood, plastic, thatch/leaf, scrap) into hopper
   public feedCompactorJunk(junkItemId: ItemId, count: number = 1): boolean {
     if (this.compactorLoadedJunk >= 10) {
@@ -2020,7 +1089,7 @@ export class RaftEngine {
 
   // Update Stations: Boiling Purifiers, Sizzling Grills, Growing Crops, Collection Nets
   private updateStations(dt: number) {
-    this.structures.forEach((s) => {
+    this.build.structures.forEach((s) => {
       // 1. Purifier
       if (s.type === 'purifier' && s.data?.purifierSaltWater) {
         s.data.purifierBoilProgress = (s.data.purifierBoilProgress || 0) + dt * 4.5;
@@ -2095,8 +1164,8 @@ export class RaftEngine {
     let promptText: string | null = null;
 
     // Check structures near player (by distance or raycast)
-    const directHit = this.getStructureUnderCrosshair();
-    const candidateStructures = directHit ? [directHit] : Array.from(this.structures.values());
+    const directHit = this.build.getStructureUnderCrosshair();
+    const candidateStructures = directHit ? [directHit] : Array.from(this.build.structures.values());
 
     for (let s of candidateStructures) {
       const dist = this.camera.position.distanceTo(s.mesh.position);
@@ -2287,7 +1356,7 @@ export class RaftEngine {
     this.islandManager.update(dt);
 
     // 2. Waves & Drift (Reacts to weather wind and storm swells)
-    const effectiveDrift = 1.9 * this.driftSpeedMultiplier;
+    const effectiveDrift = 1.9 * this.build.driftSpeedMultiplier;
     this.oceanEnv.updateWaves(
       elapsed,
       effectiveDrift,
@@ -2313,10 +1382,10 @@ export class RaftEngine {
       if (this.keys.KeyA) move.sub(right);
       if (move.lengthSq() > 0) move.normalize();
 
-      const standingOnRaft = this.checkOnRaft(this.player.pos.x, this.player.pos.z);
+      const standingOnRaft = this.build.checkOnRaft(this.player.pos.x, this.player.pos.z);
       const islandH = this.islandManager.getHeightAt(this.player.pos.x, this.player.pos.z);
       const onIsland = islandH > 0.15;
-      const targetEyeY = this.calculateSurfaceHeight(this.player.pos.x, this.player.pos.y, this.player.pos.z, elapsed);
+      const targetEyeY = this.build.calculateSurfaceHeight(this.player.pos.x, this.player.pos.y, this.player.pos.z, elapsed);
       const isSolidGround = targetEyeY !== -Infinity;
       const waterSurfaceEyeY = 0.65 + Math.sin(elapsed * 2.5) * 0.08;
 
@@ -2328,10 +1397,10 @@ export class RaftEngine {
       const nextZ = this.player.pos.z + move.z * speed * dt;
 
       // Obstacle collision against walls, window walls, pillars, and architecture
-      if (!this.checkHorizontalCollision(nextX, this.player.pos.z, this.player.pos.y)) {
+      if (!this.build.checkHorizontalCollision(nextX, this.player.pos.z, this.player.pos.y)) {
         this.player.pos.x = nextX;
       }
-      if (!this.checkHorizontalCollision(this.player.pos.x, nextZ, this.player.pos.y)) {
+      if (!this.build.checkHorizontalCollision(this.player.pos.x, nextZ, this.player.pos.y)) {
         this.player.pos.z = nextZ;
       }
 
@@ -2364,11 +1433,11 @@ export class RaftEngine {
     }
 
     // Gravity & Ground Height (Foundations, Stairs, Upper Deck)
-    const targetFloorY = this.calculateSurfaceHeight(this.player.pos.x, this.player.pos.y, this.player.pos.z, elapsed);
+    const targetFloorY = this.build.calculateSurfaceHeight(this.player.pos.x, this.player.pos.y, this.player.pos.z, elapsed);
     const waterSurfaceEyeY = 0.65 + Math.sin(elapsed * 2.5) * 0.08;
 
     // Ceiling bump check when jumping under second-story upper deck floor
-    for (const s of this.structures.values()) {
+    for (const s of this.build.structures.values()) {
       if (s.type === 'floor') {
         const fx = s.gx * BLOCK_SIZE;
         const fz = s.gz * BLOCK_SIZE;
@@ -2598,7 +1667,7 @@ export class RaftEngine {
     this.updateInteractRaycast();
 
     // 8. Update Build Hologram
-    this.updateBuildHologram();
+    this.build.updateBuildHologram();
 
     // 10. Multiplayer Remote Players & Local Movement Broadcast
     if (this.multiplayer) {
@@ -2623,20 +1692,7 @@ export class RaftEngine {
   }
 
   public saveWorld(notify: boolean = true): WorldSaveData {
-    const serializedStructures: SerializedStructure[] = Array.from(this.structures.values()).map((s) => ({
-      id: s.id,
-      type: s.type,
-      gx: s.gx,
-      gy: s.gy,
-      gz: s.gz,
-      rotation: s.rotation,
-      health: s.health,
-      maxHealth: s.maxHealth,
-      posX: s.mesh.position.x,
-      posY: s.mesh.position.y,
-      posZ: s.mesh.position.z,
-      data: s.data,
-    }));
+    const serializedStructures = this.build.serializeStructures();
 
     const save: WorldSaveData = {
       version: 1,
@@ -2676,29 +1732,8 @@ export class RaftEngine {
   public loadWorld(save: WorldSaveData, preservePlayer: boolean = false): boolean {
     if (!save || !Array.isArray(save.structures)) return false;
 
-    // Clear existing structures from 3D scene
-    this.structures.forEach((s) => {
-      this.raftGroup.remove(s.mesh);
-    });
-    this.structures.clear();
-
-    // Reconstruct all structures preserving exact IDs
-    save.structures.forEach((s) => {
-      this.placeStructure(
-        s.type,
-        s.gx,
-        s.gy,
-        s.gz,
-        s.rotation,
-        false,
-        s.posX !== undefined ? { x: s.posX, y: s.posY!, z: s.posZ! } : undefined,
-        s.id
-      );
-      const placed = this.structures.get(s.id);
-      if (placed && s.data) {
-        placed.data = { ...placed.data, ...s.data };
-      }
-    });
+    // Clear existing structures and reconstruct all preserving exact IDs
+    this.build.loadFrom(save.structures);
 
     if (save.dayCount) this.dayCount = save.dayCount;
     if (save.dayTime !== undefined) this.dayTime = save.dayTime;
@@ -2722,7 +1757,6 @@ export class RaftEngine {
       this.callbacks.onInventoryChange([...this.inventory]);
     }
 
-    this.updateSailSpeed();
     return true;
   }
 
@@ -2735,14 +1769,11 @@ export class RaftEngine {
 
   public resetWorld() {
     clearWorldLocally();
-    this.structures.forEach((s) => {
-      this.raftGroup.remove(s.mesh);
-    });
-    this.structures.clear();
+    this.build.clearAll();
     this.sharkSystem.reset();
     this.dayCount = 1;
     this.dayTime = 0.25;
-    this.createInitialRaft();
+    this.build.createInitialRaft();
     this.respawnPlayer();
     this.callbacks.onToast('🔄 World reset to initial 2x2 starter raft!', '#38bdf8');
   }
@@ -2752,6 +1783,7 @@ export class RaftEngine {
     if (this.frameId) cancelAnimationFrame(this.frameId);
     if (this.autoSaveTimer) clearInterval(this.autoSaveTimer);
     if (this.multiplayer) this.multiplayer.disconnect();
+    this.build.dispose();
     this.fishingSystem.dispose();
     this.weatherSystem.dispose();
     this.islandManager.dispose();

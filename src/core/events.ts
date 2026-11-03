@@ -8,9 +8,17 @@
  * - 同步派发，与旧的回调调用语义一致。
  */
 
+import type { BuildingType, PlacedStructure } from '../types/game';
+
 export interface GameEvents {
   /** UI 提示。payload: 提示文本与左侧色条颜色 */
   toast: { text: string; color?: string };
+  /** 玩家选中了一个建筑类型（建造面板 / 滚轮切换）。payload: 建筑类型 */
+  buildingSelected: { type: BuildingType };
+  /** 一个结构被放置（含多人远端放置、存档重建）。payload: 放置后的结构 */
+  structurePlaced: { structure: PlacedStructure };
+  /** 一个结构被拆除。payload: 结构 id（鲨鱼咬板、多人远端拆除也走此事件） */
+  structureDemolished: { id: string };
 }
 
 type Handler<T> = (payload: T) => void;
