@@ -46,7 +46,9 @@ export interface StationSystemContext {
   getDebrisList: () => DebrisObject[];
 }
 
-export class StationSystem {
+import { Tickable } from '../lifecycle';
+
+export class StationSystem implements Tickable {
   /** 压缩机料斗当前装载量（0-10） */
   public compactorLoadedJunk = 0;
 
@@ -452,7 +454,8 @@ export class StationSystem {
   // ==================== Per-frame Update ====================
 
   // Update Stations: Boiling Purifiers, Sizzling Grills, Growing Crops, Collection Nets
-  public updateStations(dt: number) {
+  /** 每帧：站点生产推进（Tickable 统一入口） */
+  public update(dt: number, _elapsed: number) {
     this.ctx.build().structures.forEach((s) => {
       // 1. Purifier
       if (s.type === 'purifier' && s.data?.purifierSaltWater) {

@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import type { GameCallbacks } from './gameWorld';
 import type { WorldDefinition } from '../data/worldDefinition';
 import type { OceanEnvironment } from './environment/ocean';
+import type { WeatherSystem } from './environment/weather';
 import type { IslandManager } from './environment/islands';
 import type { DebrisSystem } from './systems/debris';
 import type { PlayerSystem } from './systems/player';
@@ -48,6 +49,7 @@ export interface WorldView {
   time: () => TimeSystem;
   islands: () => IslandManager;
   ocean: () => OceanEnvironment;
+  weather: () => WeatherSystem;
   merchant: () => MerchantSystem;
 
   // 世界级服务

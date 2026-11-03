@@ -15,26 +15,26 @@ import { ITEM_DEFINITIONS } from '../../data/itemsAndRecipes';
 import { soundManager } from '../../audio/soundManager';
 import { createGrapplingHookMesh, createFPSTool } from '../visuals/models';
 import { events } from '../../core/events';
+import { OCEAN_DRIFT_BASE } from '../environment/ocean';
+import { Tickable } from '../lifecycle';
 
 export type HookState = 'IDLE' | 'CHARGING' | 'THROWN' | 'FLOATING' | 'RETRACTING';
 
 export interface HookSystemContext {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-}
-
-/** 每帧 update 的外部依赖（engine 侧按需提供） */
-export interface HookUpdateContext {
-  effectiveDrift: number;
-  playerPos: THREE.Vector3;
+  /** 洋流有效漂移速度（FLOATING 态随波漂流） */
+  getEffectiveDrift: () => number;
+  /** 本地玩家位置（脱钩判定/收线目标） */
+  getPlayerPos: () => THREE.Vector3;
   /** 当前手持物品的主动作（throw_hook 时显示蓄力/待机动画，物品映射在 data 层） */
-  activeToolAction: ToolActionKind | null;
-  /** engine 的漂浮物列表（钩取时原地标记 caught 并移除） */
-  debrisList: DebrisObject[];
+  getActiveToolAction: () => ToolActionKind | null;
+  /** 漂浮物活数组（钩取时原地标记 caught 并移除） */
+  getDebrisList: () => DebrisObject[];
   addItemToInventory: (id: ResourceId, count: number) => void;
 }
 
-export class HookSystem {
+export class HookSystem implements Tickable {
   public hookState: HookState = 'IDLE';
   public hookPos = new THREE.Vector3();
   public hookVel = new THREE.Vector3();
@@ -122,8 +122,10 @@ export class HookSystem {
 
   // ==================== Per-frame Update ====================
 
-  public update(dt: number, elapsed: number, u: HookUpdateContext) {
-    const playerPos = u.playerPos;
+  public update(dt: number, elapsed: number) {
+    const playerPos = this.ctx.getPlayerPos();
+    const activeToolAction = this.ctx.getActiveToolAction();
+    const debrisList = this.ctx.getDebrisList();
 
     if (this.hookState === 'CHARGING') {
       this.hookPower = Math.min(1.0, this.hookPower + dt * 1.25);
@@ -132,7 +134,7 @@ export class HookSystem {
     const rodTip = new THREE.Vector3(0.35, -0.22, -0.75).applyMatrix4(this.ctx.camera.matrixWorld);
 
     // Held FPS Tool dynamics: Hook charging windup, Idle breathing, or throw hide
-    if (u.activeToolAction === 'throw_hook' && this.currentToolModel) {
+    if (activeToolAction === 'throw_hook' && this.currentToolModel) {
       if (this.hookState === 'CHARGING') {
         // Wind-up: pull back and elevate with tension
         this.currentToolModel.position.set(
@@ -180,7 +182,7 @@ export class HookSystem {
           this.hookState = 'RETRACTING';
         }
       } else if (this.hookState === 'FLOATING') {
-        this.hookPos.z += u.effectiveDrift * dt;
+        this.hookPos.z += this.ctx.getEffectiveDrift() * dt;
         this.hookPos.y = 0.05 + Math.sin(elapsed * 3.5) * 0.04;
         if (this.hookPos.distanceTo(playerPos) > 56) {
           this.hookState = 'RETRACTING';
@@ -195,19 +197,19 @@ export class HookSystem {
           if (this.hookCaught.length > 0) {
             this.hookCaught.forEach((item) => {
               Object.entries(item.yields).forEach(([res, count]) => {
-                u.addItemToInventory(res as ResourceId, count || 1);
+                this.ctx.addItemToInventory(res as ResourceId, count || 1);
                 const def = ITEM_DEFINITIONS[res as ResourceId];
                 events.emit('toast', { text: `+${count} ${def?.name || res}`, color: def?.color || '#38bdf8' });
               });
               this.ctx.scene.remove(item.mesh);
-              const idx = u.debrisList.indexOf(item);
-              if (idx !== -1) u.debrisList.splice(idx, 1);
+              const idx = debrisList.indexOf(item);
+              if (idx !== -1) debrisList.splice(idx, 1);
             });
             soundManager.playItemCollect();
             this.hookCaught = [];
           }
           this.hookState = 'IDLE';
-          if (u.activeToolAction === 'throw_hook' && this.currentToolModel) {
+          if (activeToolAction === 'throw_hook' && this.currentToolModel) {
             this.currentToolModel.visible = true;
           }
         } else {
@@ -222,7 +224,7 @@ export class HookSystem {
 
       // Check collision with floating debris
       if ((this.hookState === 'FLOATING' || this.hookState === 'RETRACTING' || this.hookState === 'THROWN') && this.hookCaught.length < 3) {
-        for (let d of u.debrisList) {
+        for (let d of debrisList) {
           if (!d.caught && d.mesh.position.distanceTo(this.hookPos) < 1.4) {
             d.caught = true;
             this.hookCaught.push(d);
@@ -256,5 +258,17 @@ export class HookSystem {
 // ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
 
 export function createHookSystem(w: WorldView): HookSystem {
-  return new HookSystem({ scene: w.scene, camera: w.camera });
+  return new HookSystem({
+    scene: w.scene,
+    camera: w.camera,
+    getEffectiveDrift: () => OCEAN_DRIFT_BASE * w.build().driftSpeedMultiplier,
+    getPlayerPos: () => w.player().localPlayer.pos,
+    getActiveToolAction: () => {
+      const inv = w.inventory();
+      const id = inv.hotbar[inv.activeHotbarIdx]?.itemId;
+      return id ? (ITEM_DEFINITIONS[id]?.primaryAction ?? null) : null;
+    },
+    getDebrisList: () => w.debris().items,
+    addItemToInventory: (id, count) => w.inventory().addItemToInventory(id, count),
+  });
 }

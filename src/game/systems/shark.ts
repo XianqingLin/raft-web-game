@@ -46,7 +46,9 @@ interface SharkInstance {
   mesh: THREE.Group;
 }
 
-export class SharkSystem {
+import { Tickable } from '../lifecycle';
+
+export class SharkSystem implements Tickable {
   /** 是否击败过 Bruce（世界级进度，存档字段） */
   public sharkDefeatedOnce: boolean = false;
   public floatingMeatList: { id: number; mesh: THREE.Group; pos: THREE.Vector3; caught: boolean; bobPhase: number }[] = [];

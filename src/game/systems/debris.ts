@@ -2,6 +2,8 @@ import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { DebrisObject, ResourceId } from '../../types/game';
 import { createDebrisMesh } from '../visuals/models';
+import { OCEAN_DRIFT_BASE } from '../environment/ocean';
+import { Tickable } from '../lifecycle';
 
 /**
  * DebrisSystem —— 漂浮物系统（拆分自 engine.ts，split step 8）。
@@ -16,13 +18,15 @@ import { createDebrisMesh } from '../visuals/models';
 
 export interface DebrisSystemContext {
   scene: THREE.Scene;
+  /** 洋流有效漂移速度（与 hook/shark 同源） */
+  getDrift: () => number;
 }
 
 const SPAWN_INTERVAL = 3.4;
 const MAX_DEBRIS = 15;
 const DESPAWN_Z = 58;
 
-export class DebrisSystem {
+export class DebrisSystem implements Tickable {
   private ctx: DebrisSystemContext;
   private spawnTimer = 0;
 
@@ -87,8 +91,9 @@ export class DebrisSystem {
   }
 
   /** 每帧：按节奏补充漂浮物（上限15），漂移/浮动/自转，越界回收 */
-  public update(dt: number, elapsed: number, drift: number) {
+  public update(dt: number, elapsed: number) {
     const debris = this.debris;
+    const drift = this.ctx.getDrift();
 
     this.spawnTimer += dt;
     if (this.spawnTimer > SPAWN_INTERVAL && debris.length < MAX_DEBRIS) {
@@ -121,5 +126,8 @@ export class DebrisSystem {
 // ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
 
 export function createDebrisSystem(w: WorldView): DebrisSystem {
-  return new DebrisSystem({ scene: w.scene });
+  return new DebrisSystem({
+    scene: w.scene,
+    getDrift: () => OCEAN_DRIFT_BASE * w.build().driftSpeedMultiplier,
+  });
 }

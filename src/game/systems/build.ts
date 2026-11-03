@@ -66,7 +66,9 @@ export interface BuildSystemContext {
   getIslandHeight: (x: number, z: number) => number;
 }
 
-export class BuildSystem {
+import { Tickable } from '../lifecycle';
+
+export class BuildSystem implements Tickable {
   // Structure Ownership
   public structures: Map<string, PlacedStructure> = new Map();
   public raftGroup: THREE.Group = new THREE.Group();
@@ -518,7 +520,8 @@ export class BuildSystem {
 
   // ==================== Build Mode Hologram Preview ====================
 
-  public updateBuildHologram() {
+  /** 每帧：建造全息预览（Tickable 统一入口） */
+  public update(_dt: number, _elapsed: number) {
     if (!this.isBuildMode) {
       this.destroyGhostMesh();
       this.ghostSnapCoord = null;

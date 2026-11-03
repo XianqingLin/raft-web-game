@@ -15,6 +15,8 @@ export interface FishingSystemContext {
   camera: THREE.PerspectiveCamera;
   /** 玩家位置 getter（鱼跃落点/收线目标） */
   getPlayerPos: () => THREE.Vector3;
+  /** 海面高度采样（浮漂/水花用；weather 乘数在接线处注入） */
+  getWaveHeightAt: (x: number, z: number, elapsed: number) => number;
   /** 捕获成功时入包（GameWorld 接线到 InventorySystem） */
   addItemToInventory: (itemId: 'raw_fish' | 'raw_potato' | 'scrap', count: number) => void;
   /** 捕获成功时消耗一次手持鱼竿耐久（InventorySystem 的物品消耗规则） */
@@ -23,7 +25,9 @@ export interface FishingSystemContext {
   onPromptChange?: (prompt: string | null) => void;
 }
 
-export class FishingSystem {
+import { Tickable } from '../lifecycle';
+
+export class FishingSystem implements Tickable {
   public state: FishingState = 'IDLE';
   public bobberMesh: THREE.Group;
   public lineMesh: THREE.Line;
@@ -356,12 +360,10 @@ export class FishingSystem {
   /**
    * Main frame update
    */
-  public update(
-    dt: number,
-    playerPos: THREE.Vector3,
-    elapsed: number,
-    getWaveHeight: (x: number, z: number) => number
-  ) {
+  public update(dt: number, elapsed: number) {
+    const playerPos = this.ctx.getPlayerPos();
+    const getWaveHeight = (x: number, z: number) => this.ctx.getWaveHeightAt(x, z, elapsed);
+
     // 1. Splash Particle Physics
     this.splashParticles.forEach((p) => {
       if (p.life > 0) {
@@ -515,6 +517,14 @@ export function createFishingSystem(w: WorldView): FishingSystem {
     scene: w.scene,
     camera: w.camera,
     getPlayerPos: () => w.player().localPlayer.pos,
+    getWaveHeightAt: (x, z, elapsed) =>
+      w.ocean().getWaveHeightAt(
+        x,
+        z,
+        elapsed,
+        w.weather().getWaveHeightMultiplier(),
+        w.weather().getWaveSpeedMultiplier()
+      ),
     addItemToInventory: (itemId, count) => w.inventory().addItemToInventory(itemId, count),
     consumeRodDurability: () => w.inventory().consumeRodDurability(),
     onToast: w.toast,

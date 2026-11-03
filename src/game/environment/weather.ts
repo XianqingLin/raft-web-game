@@ -6,7 +6,7 @@ import { soundManager } from '../../audio/soundManager';
 
 export interface WeatherSystem {
   currentWeather: WeatherType;
-  update: (dt: number, cameraPos: THREE.Vector3, dayProgress: number) => void;
+  update: (dt: number, elapsed: number) => void;
   setWeather: (type: WeatherType) => void;
   getWaveHeightMultiplier: () => number;
   getWaveSpeedMultiplier: () => number;
@@ -20,6 +20,8 @@ export function createWeatherSystem(
   sunLight: THREE.DirectionalLight,
   ambientLight: THREE.AmbientLight,
   hemiLight: THREE.HemisphereLight,
+  /** 相机位置（雨幕跟随），逐帧惰性拉取 */
+  getCameraPos: () => THREE.Vector3,
   onWeatherChange?: (weather: WeatherType) => void
 ): WeatherSystem {
   let currentWeather: WeatherType = 'CLEAR';
@@ -92,7 +94,9 @@ export function createWeatherSystem(
     onWeatherChange?.(type);
   };
 
-  const update = (dt: number, cameraPos: THREE.Vector3, _dayProgress: number) => {
+  const update = (dt: number) => {
+    const cameraPos = getCameraPos();
+
     // 1. Weather timer update
     weatherTimer -= dt;
     if (weatherTimer <= 0) {
@@ -259,6 +263,7 @@ export function createWeather(w: WorldView, ocean: OceanEnvironment): WeatherSys
     ocean.sunLight,
     ocean.ambientLight,
     ocean.hemiLight,
+    () => w.camera.position,
     (newWeather) => {
       w.ui.onWeatherChange?.(newWeather);
       if (newWeather === 'LIGHT_FOG') {

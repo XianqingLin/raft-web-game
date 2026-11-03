@@ -10,7 +10,7 @@ import {
 } from '../types/game';
 import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
 import { WorldDefinition, DEFAULT_WORLD } from '../data/worldDefinition';
-import { createOceanEnvironment, OceanEnvironment, OCEAN_DRIFT_BASE } from './environment/ocean';
+import { createOceanEnvironment, OceanEnvironment } from './environment/ocean';
 import { WeatherSystem, createWeather } from './environment/weather';
 import { createIslandManager, IslandManager } from './environment/islands';
 import { FishingSystem, createFishingSystem } from './systems/fishing';
@@ -105,8 +105,13 @@ export class GameWorld implements EngineDelegate {
   /** 工具主动作 → 系统调用的执行表（物品→动作的映射在 data/itemsAndRecipes.ts） */
   private toolActions: Record<ToolActionKind, () => void>;
 
-  /** 每帧 tick 注册表（顺序即执行顺序，见 lifecycle.ts 的两层生命周期约定） */
+  /** 每帧 tick 注册表：创建顺序即 tick 顺序（见 lifecycle.ts） */
   private tickers: Tickable[] = [];
+
+  /** 登记一个每帧 tick 的系统（在创建处紧跟调用） */
+  private register(t: Tickable) {
+    this.tickers.push(t);
+  }
 
   constructor(
     container: HTMLElement,
@@ -147,6 +152,7 @@ export class GameWorld implements EngineDelegate {
       time: () => this.time,
       islands: () => this.islandManager,
       ocean: () => this.oceanEnv,
+      weather: () => this.weatherSystem,
       merchant: () => this.merchantSystem,
       saveWorld: (notify = false) => {
         this.saveWorld(notify);
@@ -156,39 +162,60 @@ export class GameWorld implements EngineDelegate {
     };
 
     // Systems: one create per system — wiring lives in each system's factory.
-    // Order matters: a factory may only call getters of already-created systems.
+    // 创建顺序即 tick 顺序（见 lifecycle.ts）：每个有每帧行为的系统创建后
+    // 紧跟一行 register()，没有第二份顺序清单要维护。工厂只能引用已创建
+    // 系统的 getter（惰性 getter 在 tick 期才求值的除外）。
+    // Time 最先：后续系统的 tick 都读 time.dayTime。
+    this.time = createTimeSystem(w);
+    this.register(this.time);
+
     this.playerSystem = createPlayerSystem(w);
+    this.register(this.playerSystem);
+
     this.inventorySystem = createInventorySystem(w);
-    this.oceanEnv = createOceanEnvironment(scene);
+
+    // Ocean 在 weather 之前：weather 的灯光由 ocean 创建（创建期依赖），
+    // 因此 ocean 的 tick 也略先于 weather——波形参数消费上一帧的天气值；
+    // 这些参数本身以秒级速度插值，一帧滞后不可感知。
+    this.oceanEnv = createOceanEnvironment(w);
+    this.register(this.oceanEnv);
     this.weatherSystem = createWeather(w, this.oceanEnv);
+    this.register(this.weatherSystem);
+
     this.islandManager = createIslandManager(scene);
+    this.register(this.islandManager);
 
     // Drifting Merchant Outpost Barge (Scavenger Economy) — count/position from definition
+    // 静态场景实体，无每帧行为，不进 tick 注册表
     this.merchantSystem = createMerchantSystem(w);
 
     // Minecraft-Style Fishing System
     this.fishingSystem = createFishingSystem(w);
+    this.register(this.fishingSystem);
 
     // Hook & FPS Tool System
     this.hookSystem = createHookSystem(w);
+    this.register(this.hookSystem);
 
     // Raft Build System
     this.build = createBuildSystem(w);
-
-    // Time System
-    this.time = createTimeSystem(w);
+    this.register(this.build);
 
     // Debris System
     this.debrisSystem = createDebrisSystem(w);
+    this.register(this.debrisSystem);
 
     // Station System
     this.stations = createStationSystem(w);
+    this.register(this.stations);
 
     // Shark AI & Combat System (Bruce)
     this.sharkSystem = createSharkSystem(w);
+    this.register(this.sharkSystem);
 
     // Interaction System (crosshair raycasts & prompts; reads many systems)
     this.interaction = createInteractionSystem(w);
+    this.register(this.interaction);
 
     // Tool action dispatch: which item maps to which action lives in item
     // definitions (data layer); the world only wires actions to systems here.
@@ -233,73 +260,8 @@ export class GameWorld implements EngineDelegate {
     this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
     this.callbacks.onInventoryChange([...this.inventory]);
 
-    // Frame tick order — the declarative replacement for a handwritten
-    // onFrame. Later tickers may read earlier tickers' output (time pushes
-    // dayTime → ocean/weather consume it); cross-system data flow inside a
-    // single step lives in the closure below (composition root's job).
-    this.registerTickers();
-
     // All systems wired: start the engine loop
     this.engine.start();
-  }
-
-  /** 洋流有效漂移速度（基础漂移 × 建筑加成；hook/debris/shark 共用） */
-  private getEffectiveDrift(): number {
-    return OCEAN_DRIFT_BASE * this.build.driftSpeedMultiplier;
-  }
-
-  /** 组合根的帧顺序声明：一个系统一个条目，条目内闭包只做接线 */
-  private registerTickers() {
-    this.tickers.push(
-      { name: 'time', tick: (dt) => this.time.update(dt) },
-      { name: 'weather', tick: (dt) => this.weatherSystem.update(dt, this.engine.camera.position, this.time.dayTime) },
-      {
-        name: 'ocean',
-        tick: (_dt, elapsed) => {
-          this.oceanEnv.updateTimeOfDay(this.time.dayTime);
-          this.oceanEnv.updateWaves(
-            elapsed,
-            this.getEffectiveDrift(),
-            this.weatherSystem.getWaveHeightMultiplier(),
-            this.weatherSystem.getWaveSpeedMultiplier(),
-            this.weatherSystem.getOceanColor(),
-            this.weatherSystem.getOceanRoughness()
-          );
-        },
-      },
-      { name: 'islands', tick: (dt) => this.islandManager.update(dt) },
-      { name: 'player.movement', tick: (dt, elapsed) => this.playerSystem.update(dt, elapsed) },
-      {
-        name: 'hook',
-        tick: (dt, elapsed) =>
-          this.hookSystem.update(dt, elapsed, {
-            effectiveDrift: this.getEffectiveDrift(),
-            playerPos: this.playerSystem.localPlayer.pos,
-            activeToolAction: this.getActivePrimaryAction() ?? null,
-            debrisList: this.debrisSystem.items,
-            addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
-          }),
-      },
-      {
-        name: 'fishing',
-        tick: (dt, elapsed) => {
-          const waveHMult = this.weatherSystem.getWaveHeightMultiplier();
-          const waveSMult = this.weatherSystem.getWaveSpeedMultiplier();
-          this.fishingSystem.update(
-            dt,
-            this.playerSystem.localPlayer.pos,
-            elapsed,
-            (x, z) => this.oceanEnv.getWaveHeightAt(x, z, elapsed, waveHMult, waveSMult)
-          );
-        },
-      },
-      { name: 'debris', tick: (dt, elapsed) => this.debrisSystem.update(dt, elapsed, this.getEffectiveDrift()) },
-      { name: 'player.survival', tick: (dt) => this.playerSystem.updateSurvival(dt) },
-      { name: 'shark', tick: (dt, elapsed) => this.sharkSystem.update(dt, elapsed) },
-      { name: 'stations', tick: (dt) => this.stations.updateStations(dt) },
-      { name: 'interaction', tick: () => this.interaction.update() },
-      { name: 'build.hologram', tick: () => this.build.updateBuildHologram() },
-    );
   }
 
   // ==================== EngineDelegate: Input Dispatch -> systems ====================
@@ -442,10 +404,10 @@ export class GameWorld implements EngineDelegate {
 
   // ==================== EngineDelegate: Frame ====================
 
-  /** 每帧玩法 tick（渲染由引擎在 tick 后执行）：按注册表顺序执行 */
+  /** 每帧玩法 tick（渲染由引擎在 tick 后执行）：按注册顺序执行 */
   public onFrame(dt: number, elapsed: number) {
     for (const t of this.tickers) {
-      t.tick(dt, elapsed);
+      t.update(dt, elapsed);
     }
   }
 

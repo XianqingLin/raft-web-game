@@ -16,6 +16,7 @@ import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/models';
 import { soundManager } from '../../audio/soundManager';
 import { events } from '../../core/events';
 import { BuildSystem } from './build';
+import { Tickable } from '../lifecycle';
 import { PlayerState } from '../context';
 
 /** 鼠标灵敏度（弧度/像素） */
@@ -41,7 +42,7 @@ export interface PlayerSystemContext {
  * 与相机的宿主——这是多人化的接缝：输入/相机永远只路由到 localPlayer，
  * 远程玩家未来复用同一集合与 tick，只是不走输入分支。
  */
-export class PlayerSystem {
+export class PlayerSystem implements Tickable {
   /** 已生成的玩家实体集合（players[0] 即本地玩家） */
   private players: PlayerState[] = [];
 
@@ -92,10 +93,13 @@ export class PlayerSystem {
 
   // ==================== Movement & Physics ====================
 
-  /** 每帧调用：逐玩家 tick（本地玩家额外做输入驱动与相机同步） */
+  /** 每帧调用：逐玩家 tick（本地玩家额外做输入驱动与相机同步），随后统一结算生存数值 */
   public update(dt: number, elapsed: number) {
     for (let i = 0; i < this.players.length; i++) {
       this.tickPlayer(this.players[i], dt, elapsed, i === 0);
+    }
+    for (const player of this.players) {
+      this.tickSurvival(player, dt);
     }
   }
 
@@ -239,13 +243,7 @@ export class PlayerSystem {
 
   // ==================== Survival ====================
 
-  /** 生存数值衰减：逐玩家处理口渴/饥饿/回血/死亡 */
-  public updateSurvival(dt: number) {
-    for (const player of this.players) {
-      this.tickSurvival(player, dt);
-    }
-  }
-
+  /** 生存数值衰减（update 末尾统一调用）：口渴/饥饿递减、回血、死亡触发 */
   private tickSurvival(player: PlayerState, dt: number) {
     const stats = player.stats;
     if (stats.isDead) return;

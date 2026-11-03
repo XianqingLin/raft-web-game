@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { WorldView } from '../worldView';
 
 /** 海面漂流基准速度（木筏/漂浮物随波漂移；BuildSystem 的帆 multiplier 在此基础上缩放） */
 export const OCEAN_DRIFT_BASE = 1.9;
@@ -10,6 +11,8 @@ export interface OceanEnvironment {
   hemiLight: THREE.HemisphereLight;
   ambientLight: THREE.AmbientLight;
   starField: THREE.Points;
+  /** 每帧 tick（Tickable）：昼夜光照 + 波形/颜色，weather/time/build 惰性拉取 */
+  update: (dt: number, elapsed: number) => void;
   updateTimeOfDay: (normalizedDayProgress: number) => void;
   updateWaves: (
     elapsed: number,
@@ -28,7 +31,8 @@ export interface OceanEnvironment {
   ) => number;
 }
 
-export function createOceanEnvironment(scene: THREE.Scene): OceanEnvironment {
+export function createOceanEnvironment(w: WorldView): OceanEnvironment {
+  const scene = w.scene;
   // 1. Dynamic Ocean Plane with Vertex Wave Shader
   const oceanSize = 400;
   const oceanSegments = 100;
@@ -226,6 +230,17 @@ export function createOceanEnvironment(scene: THREE.Scene): OceanEnvironment {
     hemiLight,
     ambientLight,
     starField,
+    update: (_dt, elapsed) => {
+      updateTimeOfDay(w.time().dayTime);
+      updateWaves(
+        elapsed,
+        OCEAN_DRIFT_BASE * w.build().driftSpeedMultiplier,
+        w.weather().getWaveHeightMultiplier(),
+        w.weather().getWaveSpeedMultiplier(),
+        w.weather().getOceanColor(),
+        w.weather().getOceanRoughness()
+      );
+    },
     updateTimeOfDay,
     updateWaves,
     getWaveHeightAt,

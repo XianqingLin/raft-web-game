@@ -39,7 +39,9 @@ export interface InteractionContext {
   onInteractPrompt: (prompt: string | null) => void;
 }
 
-export class InteractionSystem {
+import { Tickable } from '../lifecycle';
+
+export class InteractionSystem implements Tickable {
   /** 准星命中的可交互站点与动作 */
   public aimedInteractable: AimedInteractable | null = null;
   /** 准星命中的可采集岛屿资源 */

@@ -15,7 +15,9 @@ export interface TimeSystemCallbacks {
   onTimeChange: (day: number, timeStr: string, progress: number) => void;
 }
 
-export class TimeSystem {
+import { Tickable } from '../lifecycle';
+
+export class TimeSystem implements Tickable {
   /** 一整天 = 6 分钟 */
   private dayDurationSeconds = 360;
   /** 睡觉跳到的时间点（清晨） */
