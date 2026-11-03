@@ -330,7 +330,6 @@ export class GameWorld implements EngineDelegate {
       },
       { name: 'debris', tick: (dt, elapsed) => this.debrisSystem.update(dt, elapsed, this.getEffectiveDrift()) },
       { name: 'player.survival', tick: (dt) => this.playerSystem.updateSurvival(dt) },
-      { name: 'shark.meat', tick: (dt, elapsed) => this.sharkSystem.updateMeat(dt, elapsed, this.getEffectiveDrift()) },
       { name: 'shark', tick: (dt, elapsed) => this.sharkSystem.update(dt, elapsed) },
       { name: 'stations', tick: (dt) => this.stations.updateStations(dt) },
       { name: 'interaction', tick: () => this.interaction.update() },

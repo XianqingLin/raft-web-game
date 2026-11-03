@@ -13,6 +13,18 @@ export interface MerchantSpawnDef {
   position: [number, number, number];
 }
 
+/** 生物实体生成定义：鲨鱼 */
+export interface SharkSpawnDef {
+  /** 初始位置 [x,y,z]（默认 [20, -0.4, 0]） */
+  position?: [number, number, number];
+  /** 绕筏盘旋半径（默认 18） */
+  circleRadius?: number;
+  /** 巡游速度（默认 3.5） */
+  speed?: number;
+  /** 初始盘旋角（默认 0） */
+  angle?: number;
+}
+
 export interface WorldDefinition {
   /** 存档中显示的世界名 */
   worldName: string;
@@ -25,6 +37,8 @@ export interface WorldDefinition {
   };
   /** 场景实体：漂流商人筏（数组 = 基数归数据层，代码不断言数量） */
   merchants: MerchantSpawnDef[];
+  /** 生物实体：鲨鱼（数组 = 基数归数据层） */
+  sharks: SharkSpawnDef[];
   /** 开局漂浮物 */
   initialDebris: {
     count: number;
@@ -39,6 +53,7 @@ export const DEFAULT_WORLD: WorldDefinition = {
   worldName: 'Oceanic Raft',
   start: { dayTime: 0.25, dayCount: 1 },
   merchants: [{ position: [-26, 0, -22] }],
+  sharks: [{ position: [20, -0.4, 0], circleRadius: 18, speed: 3.5 }],
   initialDebris: { count: 6, xRange: [-55, 30] },
   autoSaveIntervalMs: 12000,
 };
