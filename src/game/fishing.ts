@@ -9,6 +9,19 @@ export interface CatchResult {
   name: string;
 }
 
+export interface FishingSystemContext {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  /** 玩家位置 getter（鱼跃落点/收线目标） */
+  getPlayerPos: () => THREE.Vector3;
+  /** 捕获成功时入包（GameWorld 接线到 InventorySystem） */
+  addItemToInventory: (itemId: 'raw_fish' | 'raw_potato' | 'scrap', count: number) => void;
+  /** 捕获成功时消耗一次手持鱼竿耐久（InventorySystem 的物品消耗规则） */
+  consumeRodDurability: () => void;
+  onToast?: (msg: string, color: string) => void;
+  onPromptChange?: (prompt: string | null) => void;
+}
+
 export class FishingSystem {
   public state: FishingState = 'IDLE';
   public bobberMesh: THREE.Group;
@@ -47,15 +60,15 @@ export class FishingSystem {
   private onToast?: (msg: string, color: string) => void;
   private onPromptChange?: (prompt: string | null) => void;
 
-  constructor(
-    private scene: THREE.Scene,
-    callbacks?: {
-      onToast?: (msg: string, color: string) => void;
-      onPromptChange?: (prompt: string | null) => void;
-    }
-  ) {
-    this.onToast = callbacks?.onToast;
-    this.onPromptChange = callbacks?.onPromptChange;
+  private scene: THREE.Scene;
+
+  /** 第一人称模型中竿尖的局部偏移（乘相机世界矩阵得到世界坐标） */
+  private static readonly ROD_TIP_OFFSET = new THREE.Vector3(0.38, -0.16, -1.2);
+
+  constructor(private ctx: FishingSystemContext) {
+    this.scene = ctx.scene;
+    this.onToast = ctx.onToast;
+    this.onPromptChange = ctx.onPromptChange;
 
     // 1. Bobber Mesh (Iconic Red & White float)
     this.bobberMesh = new THREE.Group();
@@ -225,6 +238,28 @@ export class FishingSystem {
     }
   }
 
+  /** 当前竿尖世界坐标（第一人称模型偏移 × 相机世界矩阵） */
+  private getRodTip(): THREE.Vector3 {
+    return FishingSystem.ROD_TIP_OFFSET.clone().applyMatrix4(this.ctx.camera.matrixWorld);
+  }
+
+  /**
+   * 手持鱼竿时的左键动作：空闲则出竿，否则收线。
+   * 捕获入包与耐久消耗在此一并路由，GameWorld 只负责按键分发。
+   */
+  public onPrimaryAction() {
+    if (this.state === 'IDLE') {
+      const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.ctx.camera.quaternion).normalize();
+      this.cast(this.getRodTip(), lookDir);
+    } else {
+      const result = this.reel(this.ctx.getPlayerPos());
+      if (result.caught) {
+        this.ctx.addItemToInventory(result.item, 1);
+        this.ctx.consumeRodDurability();
+      }
+    }
+  }
+
   public reset() {
     this.state = 'IDLE';
     this.bobberMesh.visible = false;
@@ -322,7 +357,6 @@ export class FishingSystem {
    */
   public update(
     dt: number,
-    rodTipPos: THREE.Vector3,
     playerPos: THREE.Vector3,
     elapsed: number,
     getWaveHeight: (x: number, z: number) => number
@@ -440,7 +474,7 @@ export class FishingSystem {
 
     // 4. Update Segmented Fishing Line with Natural Gravity Sag
     const linePos = this.lineGeometry.attributes.position.array as Float32Array;
-    const start = rodTipPos;
+    const start = this.getRodTip();
     const end = this.bobberPos.clone().add(new THREE.Vector3(0, 0.08, 0));
     const dist = start.distanceTo(end);
 

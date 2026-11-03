@@ -288,7 +288,7 @@ export class InventorySystem {
     return false;
   }
 
-  /** 把当前手持的空杯装满海水（是否靠近水源由 Game 判定后调用） */
+  /** 把当前手持的空杯装满海水（是否靠近水源由 PlayerSystem 判定后调用） */
   public fillCupWithSaltwater(): boolean {
     const slot = this.hotbar[this.activeHotbarIdx];
     if (!slot || slot.itemId !== 'cup_empty') return false;
@@ -298,5 +298,18 @@ export class InventorySystem {
     this.callbacks.onToast('Gathered Cup of Ocean Saltwater', '#38bdf8');
     this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
     return true;
+  }
+
+  /** 手持鱼竿捕获成功后消耗 1 点耐久；归零时鱼竿损坏（消耗规则与 consumeSlot 同属本系统） */
+  public consumeRodDurability() {
+    const slot = this.hotbar[this.activeHotbarIdx];
+    if (!slot || slot.itemId !== 'fishing_rod' || slot.durability === undefined) return;
+
+    slot.durability -= 1;
+    if (slot.durability <= 0) {
+      slot.itemId = null;
+      this.callbacks.onToast('Your Fishing Rod broke!', '#ef4444');
+    }
+    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
   }
 }

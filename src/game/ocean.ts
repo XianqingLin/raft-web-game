@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 
+/** 海面漂流基准速度（木筏/漂浮物随波漂移；BuildSystem 的帆 multiplier 在此基础上缩放） */
+export const OCEAN_DRIFT_BASE = 1.9;
+
 export interface OceanEnvironment {
   oceanMesh: THREE.Mesh;
   oceanGrid: THREE.GridHelper;

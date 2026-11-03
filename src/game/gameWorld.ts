@@ -10,7 +10,7 @@ import {
   WorldSaveData,
 } from '../types/game';
 import { createMerchantRaftMesh } from './models';
-import { createOceanEnvironment, OceanEnvironment } from './ocean';
+import { createOceanEnvironment, OceanEnvironment, OCEAN_DRIFT_BASE } from './ocean';
 import { createWeatherSystem, WeatherSystem } from './weather';
 import { createIslandManager, IslandManager } from './islands';
 import { FishingSystem } from './fishing';
@@ -128,7 +128,6 @@ export class GameWorld implements EngineDelegate {
   private oceanEnv: OceanEnvironment;
   private callbacks: WorldCallbacks;
   private autoSaveTimer: any = null;
-  private mouseSensitivity = 0.0022;
 
   constructor(
     container: HTMLElement,
@@ -213,8 +212,14 @@ export class GameWorld implements EngineDelegate {
     this.merchantRaftGroup.position.set(-26, 0, -22);
     scene.add(this.merchantRaftGroup);
 
-    // Minecraft-Style Fishing System
-    this.fishingSystem = new FishingSystem(scene, {
+    // Minecraft-Style Fishing System (rod tip/look dir computed from camera
+    // internally; catch loot & rod durability routed to inventory via callbacks)
+    this.fishingSystem = new FishingSystem({
+      scene,
+      camera,
+      getPlayerPos: () => this.playerSystem.player.pos,
+      addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
+      consumeRodDurability: () => this.inventorySystem.consumeRodDurability(),
       onToast: (text, color) => this.callbacks.onToast(text, color),
     });
 
@@ -369,10 +374,7 @@ export class GameWorld implements EngineDelegate {
   }
 
   public onMouseMove(dx: number, dy: number) {
-    this.playerSystem.player.yaw -= dx * this.mouseSensitivity;
-    this.playerSystem.player.pitch -= dy * this.mouseSensitivity;
-    const maxPitch = Math.PI / 2 - 0.05;
-    this.playerSystem.player.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.playerSystem.player.pitch));
+    this.playerSystem.applyLookDelta(dx, dy);
   }
 
   public onWheel(deltaY: number): boolean {
@@ -456,30 +458,12 @@ export class GameWorld implements EngineDelegate {
       this.hookSystem.chargeStart();
       this.hookSystem.reelClick();
     } else if (activeSlot?.itemId === 'fishing_rod') {
-      // Minecraft-style Fishing Rod
-      if (this.fishingSystem.state === 'IDLE') {
-        const rodTip = new THREE.Vector3(0.38, -0.16, -1.2).applyMatrix4(this.engine.camera.matrixWorld);
-        const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.engine.camera.quaternion).normalize();
-        this.fishingSystem.cast(rodTip, lookDir);
-      } else {
-        // Reel line in!
-        const result = this.fishingSystem.reel(this.playerSystem.player.pos);
-        if (result.caught) {
-          this.inventorySystem.addItemToInventory(result.item, 1);
-          if (activeSlot.durability !== undefined) {
-            activeSlot.durability -= 1;
-            if (activeSlot.durability <= 0) {
-              activeSlot.itemId = null;
-              this.callbacks.onToast('Your Fishing Rod broke!', '#ef4444');
-            }
-            this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-          }
-        }
-      }
+      // Minecraft-style Fishing Rod: cast/reel/loot/durability all inside FishingSystem
+      this.fishingSystem.onPrimaryAction();
     } else if (activeSlot?.itemId === 'spear') {
       this.sharkSystem.spearThrust(this.hookSystem.toolModel);
-    } else if (activeSlot?.itemId === 'cup_empty' && (this.playerSystem.player.inWater || this.engine.camera.position.y < 3.0)) {
-      // Scoop saltwater (water-source condition checked here, consumption in inventory)
+    } else if (activeSlot?.itemId === 'cup_empty' && this.playerSystem.canScoopSaltwater()) {
+      // Scoop saltwater (water-source condition in PlayerSystem, consumption in inventory)
       this.inventorySystem.fillCupWithSaltwater();
     } else {
       // 6. Food & drink consumption — single unified path (also used by HUD
@@ -503,7 +487,7 @@ export class GameWorld implements EngineDelegate {
     this.islandManager.update(dt);
 
     // 2. Waves & Drift (Reacts to weather wind and storm swells)
-    const effectiveDrift = 1.9 * this.build.driftSpeedMultiplier;
+    const effectiveDrift = OCEAN_DRIFT_BASE * this.build.driftSpeedMultiplier;
     this.oceanEnv.updateWaves(
       elapsed,
       effectiveDrift,
@@ -525,13 +509,11 @@ export class GameWorld implements EngineDelegate {
       addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
     });
 
-    // 4b. Minecraft-style Fishing System Update
-    const fishingRodTip = new THREE.Vector3(0.38, -0.16, -1.2).applyMatrix4(this.engine.camera.matrixWorld);
+    // 4b. Minecraft-style Fishing System Update (rod tip computed internally)
     const waveHMult = this.weatherSystem.getWaveHeightMultiplier();
     const waveSMult = this.weatherSystem.getWaveSpeedMultiplier();
     this.fishingSystem.update(
       dt,
-      fishingRodTip,
       this.playerSystem.player.pos,
       elapsed,
       (x, z) => this.oceanEnv.getWaveHeightAt(x, z, elapsed, waveHMult, waveSMult)

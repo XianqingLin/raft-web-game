@@ -15,6 +15,11 @@ import { soundManager } from '../audio/soundManager';
 import { events } from '../core/events';
 import { BuildSystem } from './build';
 
+/** 鼠标灵敏度（弧度/像素） */
+const MOUSE_SENSITIVITY = 0.0022;
+/** 俯仰角上限（略小于 ±90°，避免万向节翻转） */
+const MAX_PITCH = Math.PI / 2 - 0.05;
+
 export interface PlayerSystemContext {
   camera: THREE.PerspectiveCamera;
   build: () => BuildSystem;
@@ -246,5 +251,20 @@ export class PlayerSystem {
   /** Space 键松开（engine 的 keyup 监听转发），用于跳起去重 */
   public releaseSpace() {
     this.spaceKeyHandled = false;
+  }
+
+  // ==================== Look & Water Queries ====================
+
+  /** 鼠标视角：灵敏度缩放 + 俯仰钳制（GameWorld 只转发原始位移量） */
+  public applyLookDelta(dx: number, dy: number) {
+    this.player.yaw -= dx * MOUSE_SENSITIVITY;
+    this.player.pitch -= dy * MOUSE_SENSITIVITY;
+    this.player.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.player.pitch));
+  }
+
+  /** 是否处于可取水位置（在水中或贴近水面）——空杯舀海水的判定 */
+  public canScoopSaltwater(): boolean {
+    // 相机位置每帧与玩家坐标同步（update 末尾 copy），因此只读玩家状态即可
+    return this.player.inWater || this.player.pos.y < 3.0;
   }
 }
