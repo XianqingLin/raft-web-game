@@ -228,6 +228,9 @@ export class RaftEngine {
   public sharkDefeatedOnce: boolean = false;
   private autoSaveTimer: any = null;
   private lastNetMoveSendTime: number = 0;
+  // UI push throttles (avoid per-frame React re-renders)
+  private statsPushTimer: number = 0;
+  private lastPushedTimeStr: string = '';
 
   constructor(
     container: HTMLElement,
@@ -3005,7 +3008,12 @@ export class RaftEngine {
       }, 3000);
     }
 
-    this.callbacks.onStatsChange({ ...this.player.stats });
+    // Push stats to UI at most 4x/sec (event-driven pushes elsewhere stay immediate)
+    this.statsPushTimer -= dt;
+    if (this.statsPushTimer <= 0) {
+      this.statsPushTimer = 0.25;
+      this.callbacks.onStatsChange({ ...this.player.stats });
+    }
   }
 
   public respawnPlayer() {
@@ -3031,7 +3039,11 @@ export class RaftEngine {
     const hours = Math.floor(this.dayTime * 24);
     const mins = Math.floor(((this.dayTime * 24) % 1) * 60);
     const timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-    this.callbacks.onTimeChange(this.dayCount, timeStr, this.dayTime);
+    // Only push to UI when the displayed clock string changes (not every frame)
+    if (timeStr !== this.lastPushedTimeStr) {
+      this.lastPushedTimeStr = timeStr;
+      this.callbacks.onTimeChange(this.dayCount, timeStr, this.dayTime);
+    }
     this.oceanEnv.updateTimeOfDay(this.dayTime);
 
     // Dynamic Weather Simulation & Precipitation Particles
@@ -3385,7 +3397,8 @@ export class RaftEngine {
       }
     }
 
-    // 6. Update Shark
+    // 6. Update Survival Decay (thirst/hunger/regen) & Shark
+    this.updateSurvivalDecay(dt);
     this.updateShark(dt);
 
     // 7. Update Stations & Interact Raycast
