@@ -12,9 +12,7 @@ import {
   WeatherType,
   RemotePlayer,
   WorldSaveData,
-  MerchantItem,
 } from '../types/game';
-import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
 import { soundManager } from '../audio/soundManager';
 import {
   BLOCK_SIZE,
@@ -34,6 +32,7 @@ import { InventorySystem } from './inventory';
 import { BuildSystem } from './build';
 import { PlayerSystem } from './player';
 import { HookSystem } from './hook';
+import { StationSystem } from './stations';
 import { events } from '../core/events';
 
 export interface GameCallbacks {
@@ -114,7 +113,9 @@ export class RaftEngine {
   // Signal Array & Navigation Grid State
   // Drifting Merchant Outpost & Dropped Floating Meat
   public merchantRaftGroup: THREE.Group | null = null;
-  public compactorLoadedJunk = 0;
+
+  // Station System (grill/purifier/crop/net/chest/bed/compactor interactions + merchant trades)
+  public stations: StationSystem;
 
   // Animation frame id & Multiplayer
   private frameId: number = 0;
@@ -294,6 +295,27 @@ export class RaftEngine {
       multiplayer: this.multiplayer,
       onSave: () => this.saveWorld(false),
       getIslandHeight: (x, z) => this.islandManager.getHeightAt(x, z),
+    });
+
+    // Station System: functional raft stations (grill/purifier/crop/net/chest/bed/compactor),
+    // their per-frame simulation, and the scavenger economy (compactor forge + merchant trades).
+    this.stations = new StationSystem({
+      scene: this.scene,
+      build: () => this.build,
+      player: () => this.playerSystem,
+      inventory: this.inventorySystem,
+      onHotbarChange: () => this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx),
+      onInventoryChange: () => this.callbacks.onInventoryChange([...this.inventory]),
+      onStatsChange: () => this.callbacks.onStatsChange({ ...this.playerSystem.player.stats }),
+      onOpenChest: (chest) => this.callbacks.onOpenChest(chest),
+      onOpenCompactor: () => this.callbacks.onOpenCompactor?.(),
+      getIsNight: () => this.dayTime > 0.55 || this.dayTime < 0.05,
+      advanceToMorning: () => {
+        this.dayTime = 0.15;
+        this.dayCount++;
+        return this.dayCount;
+      },
+      getDebrisList: () => this.debrisList,
     });
 
     // Shark AI & Combat System (Bruce)
@@ -503,296 +525,7 @@ export class RaftEngine {
 
   // Unified Smart Structure Interaction (Grill, Purifier, Crop Plot, Collection Net, Chest, Bed, Compactor, Receiver)
   public interactWithStructure(structure: PlacedStructure): boolean {
-    // 1. Grill - Automatic Cook & Automatic Consume/Store (supports Fish, Potatoes, and Prime Shark Meat)
-    if (structure.type === 'grill') {
-      if (structure.data?.grillDone) {
-        const isShark = structure.data.grillItem === 'shark_meat';
-        const isFish = structure.data.grillItem === 'raw_fish';
-        const cookedId: ItemId = isShark ? 'cooked_shark_meat' : isFish ? 'cooked_fish' : 'cooked_potato';
-
-        // If player is hungry (< 95), automatically eat on the spot!
-        if (this.playerSystem.player.stats.hunger < 95) {
-          const hungerBonus = isShark ? 65 : isFish ? 40 : 25;
-          const healthBonus = isShark ? 30 : isFish ? 15 : 8;
-          this.playerSystem.player.stats.hunger = Math.min(100, this.playerSystem.player.stats.hunger + hungerBonus);
-          this.playerSystem.player.stats.health = Math.min(100, this.playerSystem.player.stats.health + healthBonus);
-          soundManager.playEat();
-          this.callbacks.onToast(
-            `Ate freshly grilled ${isShark ? 'Shark Steak' : isFish ? 'Fish' : 'Potato'}! (+${hungerBonus} Hunger, +${healthBonus} HP)`,
-            '#22c55e'
-          );
-          this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
-        } else {
-          // If already full, store in inventory
-          this.inventorySystem.addItemToInventory(cookedId, 1);
-          soundManager.playItemCollect();
-          this.callbacks.onToast(
-            `Stored ${isShark ? 'Cooked Shark Steak' : isFish ? 'Cooked Fish' : 'Baked Potato'} in Inventory.`,
-            '#38bdf8'
-          );
-        }
-
-        structure.data.grillItem = null;
-        structure.data.grillDone = false;
-        structure.data.grillProgress = 0;
-        const foodMesh = structure.mesh.getObjectByName('foodCooking');
-        if (foodMesh) foodMesh.visible = false;
-        return true;
-      } else if (structure.data?.grillItem && !structure.data?.grillDone) {
-        this.callbacks.onToast(`Food is sizzling on Grill... (${Math.round(structure.data.grillProgress || 0)}%)`, '#f59e0b');
-        return true;
-      } else {
-        // Empty Grill -> Search hotbar & inventory for shark meat, raw fish, or raw potato
-        let foundCookable: { slot: HotbarSlot | InventorySlot } | null = null;
-        const cookables: ItemId[] = ['shark_meat', 'raw_fish', 'raw_potato'];
-        for (const targetId of cookables) {
-          for (const slot of this.hotbar) {
-            if (slot.itemId === targetId) {
-              foundCookable = { slot };
-              break;
-            }
-          }
-          if (foundCookable) break;
-          for (const slot of this.inventory) {
-            if (slot.itemId === targetId) {
-              foundCookable = { slot };
-              break;
-            }
-          }
-          if (foundCookable) break;
-        }
-
-        if (foundCookable) {
-          const foodId = foundCookable.slot.itemId as 'raw_fish' | 'raw_potato' | 'shark_meat';
-          structure.data!.grillItem = foodId;
-          structure.data!.grillProgress = 0;
-          structure.data!.grillDone = false;
-          foundCookable.slot.count--;
-          if (foundCookable.slot.count <= 0) foundCookable.slot.itemId = null;
-
-          const foodMesh = structure.mesh.getObjectByName('foodCooking');
-          if (foodMesh) {
-            foodMesh.visible = true;
-            if ((foodMesh as any).material) {
-              ((foodMesh as any).material as THREE.MeshStandardMaterial).color.setHex(
-                foodId === 'shark_meat' ? 0xdc2626 : foodId === 'raw_fish' ? 0x3b82f6 : 0xd97706
-              );
-            }
-          }
-          soundManager.playSizzle();
-          const foodLabel = foodId === 'shark_meat' ? 'Prime Shark Meat' : foodId === 'raw_fish' ? 'Raw Mackerel' : 'Raw Potato';
-          this.callbacks.onToast(
-            `Placed ${foodLabel} on Grill. Sizzling...`,
-            '#f97316'
-          );
-          this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-          this.callbacks.onInventoryChange([...this.inventory]);
-        } else {
-          this.callbacks.onToast('No shark meat, fish, or potatoes in inventory to grill!', '#ef4444');
-        }
-        return true;
-      }
-    }
-
-    // 2. Purifier - Automatic Boil & Automatic Drink/Store
-    if (structure.type === 'purifier') {
-      if (structure.data?.purifierFreshWater) {
-        if (this.playerSystem.player.stats.thirst < 95) {
-          this.playerSystem.player.stats.thirst = Math.min(100, this.playerSystem.player.stats.thirst + 45);
-          soundManager.playDrink();
-          this.callbacks.onToast('Drank fresh clean water! (+45 Thirst)', '#38bdf8');
-          this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
-        } else {
-          let foundEmpty: HotbarSlot | InventorySlot | null = null;
-          for (const slot of this.hotbar) {
-            if (slot.itemId === 'cup_empty') {
-              foundEmpty = slot;
-              break;
-            }
-          }
-          if (!foundEmpty) {
-            for (const slot of this.inventory) {
-              if (slot.itemId === 'cup_empty') {
-                foundEmpty = slot;
-                break;
-              }
-            }
-          }
-
-          if (foundEmpty) {
-            foundEmpty.itemId = 'cup_freshwater';
-          } else {
-            this.inventorySystem.addItemToInventory('cup_freshwater', 1);
-          }
-          soundManager.playWaterSplash(0.9);
-          this.callbacks.onToast('Collected Clean Water into Cup!', '#38bdf8');
-          this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-          this.callbacks.onInventoryChange([...this.inventory]);
-        }
-
-        structure.data.purifierFreshWater = false;
-        structure.data.purifierBoilProgress = 0;
-        const waterDisc = structure.mesh.getObjectByName('waterSurface');
-        if (waterDisc) waterDisc.visible = false;
-        return true;
-      } else if (structure.data?.purifierSaltWater) {
-        this.callbacks.onToast(
-          `Purifier is distilling seawater... (${Math.round(structure.data.purifierBoilProgress || 0)}%)`,
-          '#38bdf8'
-        );
-        return true;
-      } else {
-        let foundSalt: HotbarSlot | InventorySlot | null = null;
-        for (const slot of this.hotbar) {
-          if (slot.itemId === 'cup_saltwater') {
-            foundSalt = slot;
-            break;
-          }
-        }
-        if (!foundSalt) {
-          for (const slot of this.inventory) {
-            if (slot.itemId === 'cup_saltwater') {
-              foundSalt = slot;
-              break;
-            }
-          }
-        }
-
-        if (foundSalt) {
-          foundSalt.itemId = 'cup_empty';
-          structure.data!.purifierSaltWater = true;
-          structure.data!.purifierBoilProgress = 0;
-          soundManager.playWaterSplash(0.8);
-          this.callbacks.onToast('Poured seawater into Purifier. Boiling...', '#38bdf8');
-          this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-          this.callbacks.onInventoryChange([...this.inventory]);
-        } else {
-          let foundEmpty: HotbarSlot | InventorySlot | null = null;
-          for (const slot of this.hotbar) {
-            if (slot.itemId === 'cup_empty') {
-              foundEmpty = slot;
-              break;
-            }
-          }
-          if (!foundEmpty) {
-            for (const slot of this.inventory) {
-              if (slot.itemId === 'cup_empty') {
-                foundEmpty = slot;
-                break;
-              }
-            }
-          }
-
-          if (foundEmpty) {
-            structure.data!.purifierSaltWater = true;
-            structure.data!.purifierBoilProgress = 0;
-            soundManager.playWaterSplash(0.85);
-            this.callbacks.onToast('Scooped seawater with Cup & started boiling!', '#38bdf8');
-            this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-            this.callbacks.onInventoryChange([...this.inventory]);
-          } else {
-            this.callbacks.onToast('Need a Wooden Cup with seawater to purify!', '#ef4444');
-          }
-        }
-        return true;
-      }
-    }
-
-    // 3. Crop Plot
-    if (structure.type === 'crop_plot') {
-      if (structure.data?.cropPlanted && (structure.data.cropGrowProgress || 0) >= 100) {
-        structure.data.cropPlanted = false;
-        structure.data.cropGrowProgress = 0;
-        const shoots = structure.mesh.getObjectByName('plantShoots');
-        if (shoots) shoots.visible = false;
-        const harvestCount = 2 + Math.floor(Math.random() * 2);
-        this.inventorySystem.addItemToInventory('raw_potato', harvestCount);
-        soundManager.playItemCollect();
-        this.callbacks.onToast(`Harvested ${harvestCount} Fresh Potatoes!`, '#22c55e');
-      } else if (!structure.data?.cropPlanted) {
-        let foundPotato: HotbarSlot | InventorySlot | null = null;
-        for (const slot of this.hotbar) {
-          if (slot.itemId === 'raw_potato') {
-            foundPotato = slot;
-            break;
-          }
-        }
-        if (!foundPotato) {
-          for (const slot of this.inventory) {
-            if (slot.itemId === 'raw_potato') {
-              foundPotato = slot;
-              break;
-            }
-          }
-        }
-
-        if (foundPotato) {
-          foundPotato.count--;
-          if (foundPotato.count <= 0) foundPotato.itemId = null;
-          structure.data!.cropPlanted = true;
-          structure.data!.cropGrowProgress = 0;
-          const shoots = structure.mesh.getObjectByName('plantShoots');
-          if (shoots) shoots.visible = true;
-          soundManager.playItemCollect();
-          this.callbacks.onToast('Planted Potato in Crop Plot!', '#22c55e');
-          this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-          this.callbacks.onInventoryChange([...this.inventory]);
-        } else {
-          this.callbacks.onToast('Need a Raw Potato in inventory to plant!', '#ef4444');
-        }
-      } else {
-        this.callbacks.onToast(`Crop growing... (${Math.round(structure.data.cropGrowProgress || 0)}%)`, '#84cc16');
-      }
-      return true;
-    }
-
-    // 4. Collection Net
-    if (structure.type === 'collection_net') {
-      const trapped = structure.data?.trappedItems || [];
-      if (trapped.length > 0) {
-        trapped.forEach((res) => {
-          this.inventorySystem.addItemToInventory(res, 1);
-        });
-        structure.data!.trappedItems = [];
-        const cGroup = structure.mesh.getObjectByName('caughtItems');
-        if (cGroup) cGroup.clear();
-        soundManager.playItemCollect();
-        this.callbacks.onToast(`Emptied Collection Net (+${trapped.length} items)!`, '#38bdf8');
-      } else {
-        this.callbacks.onToast('Collection net is currently empty.', '#94a3b8');
-      }
-      return true;
-    }
-
-    // 5. Chest
-    if (structure.type === 'chest') {
-      soundManager.playCraft();
-      this.callbacks.onOpenChest(structure);
-      return true;
-    }
-
-    // 6. Bed
-    if (structure.type === 'bed') {
-      if (this.dayTime > 0.55 || this.dayTime < 0.05) {
-        this.dayTime = 0.15;
-        this.dayCount++;
-        this.playerSystem.player.stats.health = Math.min(100, this.playerSystem.player.stats.health + 35);
-        soundManager.playDrink();
-        this.callbacks.onToast(`Rested peacefully until morning. Day ${this.dayCount}!`, '#38bdf8');
-        this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
-      } else {
-        this.callbacks.onToast('You can only sleep during the night!', '#94a3b8');
-      }
-      return true;
-    }
-
-    // 7. Debris Compactor (Scavenger Economy Station)
-    if (structure.type === 'debris_compactor') {
-      this.callbacks.onOpenCompactor?.();
-      return true;
-    }
-
-    return false;
+    return this.stations.interactWithStructure(structure);
   }
 
   // Interaction Key [E]
@@ -948,155 +681,9 @@ export class RaftEngine {
     this.hookSystem.releaseThrow();
   }
 
-  // Debris Compactor: Feed junk materials (wood, plastic, thatch/leaf, scrap) into hopper
-  public feedCompactorJunk(junkItemId: ItemId, count: number = 1): boolean {
-    if (this.compactorLoadedJunk >= 10) {
-      this.callbacks.onToast('Debris Compactor hopper is full (10/10)! Ready to forge scrap block.', '#f59e0b');
-      return false;
-    }
+  // Debris Compactor & Merchant trading delegated to StationSystem (this.stations)
 
-    const toFeed = Math.min(count, 10 - this.compactorLoadedJunk);
-    let remaining = toFeed;
-
-    for (const s of this.hotbar) {
-      if (s.itemId === junkItemId) {
-        const take = Math.min(remaining, s.count);
-        s.count -= take;
-        remaining -= take;
-        if (s.count <= 0) s.itemId = null;
-        if (remaining <= 0) break;
-      }
-    }
-    if (remaining > 0) {
-      for (const s of this.inventory) {
-        if (s.itemId === junkItemId) {
-          const take = Math.min(remaining, s.count);
-          s.count -= take;
-          remaining -= take;
-          if (s.count <= 0) s.itemId = null;
-          if (remaining <= 0) break;
-        }
-      }
-    }
-
-    const fed = toFeed - remaining;
-    if (fed <= 0) {
-      this.callbacks.onToast(`No ${ITEM_DEFINITIONS[junkItemId]?.name || junkItemId} found in inventory!`, '#ef4444');
-      return false;
-    }
-
-    this.compactorLoadedJunk += fed;
-    soundManager.playItemCollect();
-    const itemName = ITEM_DEFINITIONS[junkItemId]?.name || junkItemId;
-    this.callbacks.onToast(`Fed ${fed}x ${itemName} into Compactor (${this.compactorLoadedJunk}/10)`, '#38bdf8');
-    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-    this.callbacks.onInventoryChange([...this.inventory]);
-    return true;
-  }
-
-  // Debris Compactor: Forge 1 Salvaged Scrap Block from 10 ocean junk
-  public forgeCompactorBlock(): boolean {
-    if (this.compactorLoadedJunk < 10) {
-      this.callbacks.onToast(`Need 10 ocean junk to forge! Loaded: ${this.compactorLoadedJunk}/10`, '#ef4444');
-      return false;
-    }
-
-    this.compactorLoadedJunk = 0;
-    this.inventorySystem.addItemToInventory('salvaged_scrap_block', 1);
-    soundManager.playCraft();
-    this.callbacks.onToast('⚙️ Hydraulic Compactor forged 1 Salvaged Scrap Block!', '#22c55e');
-    return true;
-  }
-
-  // Scavenger Merchant: Trade Salvaged Scrap Blocks for rare gear and blueprints
-  public buyMerchantItem(item: MerchantItem): boolean {
-    let blockCount = 0;
-    for (const s of [...this.hotbar, ...this.inventory]) {
-      if (s.itemId === 'salvaged_scrap_block') blockCount += s.count;
-    }
-
-    if (blockCount < item.costBlocks) {
-      this.callbacks.onToast(`Need ${item.costBlocks} Salvaged Scrap Blocks! (You have ${blockCount})`, '#ef4444');
-      return false;
-    }
-
-    this.inventorySystem.deductCost({ salvaged_scrap_block: item.costBlocks });
-    this.inventorySystem.addItemToInventory(item.yieldItem, item.yieldCount);
-    soundManager.playCraft();
-    this.callbacks.onToast(`Purchased ${item.yieldCount}x ${item.name}!`, '#22c55e');
-
-    return true;
-  }
-
-  // Update Stations: Boiling Purifiers, Sizzling Grills, Growing Crops, Collection Nets
-  private updateStations(dt: number) {
-    this.build.structures.forEach((s) => {
-      // 1. Purifier
-      if (s.type === 'purifier' && s.data?.purifierSaltWater) {
-        s.data.purifierBoilProgress = (s.data.purifierBoilProgress || 0) + dt * 4.5;
-        if (s.data.purifierBoilProgress >= 100) {
-          s.data.purifierSaltWater = false;
-          s.data.purifierFreshWater = true;
-          const waterDisc = s.mesh.getObjectByName('waterSurface');
-          if (waterDisc) waterDisc.visible = true;
-          this.callbacks.onToast('Fresh water is ready in Purifier!', '#38bdf8');
-        }
-      }
-
-      // 2. Grill
-      if (s.type === 'grill' && s.data?.grillItem && !s.data?.grillDone) {
-        s.data.grillProgress = (s.data.grillProgress || 0) + dt * 6.5;
-        if (s.data.grillProgress >= 100) {
-          s.data.grillDone = true;
-          const foodMesh = s.mesh.getObjectByName('foodCooking');
-          if (foodMesh && (foodMesh as any).material) {
-            ((foodMesh as any).material as THREE.MeshStandardMaterial).color.setHex(0xea580c); // cooked golden!
-          }
-          this.callbacks.onToast('Food on Grill is cooked!', '#22c55e');
-        }
-      }
-
-      // 3. Crop Plot
-      if (s.type === 'crop_plot' && s.data?.cropPlanted) {
-        s.data.cropGrowProgress = (s.data.cropGrowProgress || 0) + dt * 3.0;
-        const shoots = s.mesh.getObjectByName('plantShoots');
-        if (shoots) {
-          const scale = 0.4 + (Math.min(100, s.data.cropGrowProgress) / 100) * 0.7;
-          shoots.scale.set(scale, scale, scale);
-        }
-      }
-
-      // 4. Collection Net Catching Debris
-      if (s.type === 'collection_net') {
-        const netPos = s.mesh.position;
-        const trapped = s.data?.trappedItems || [];
-        if (trapped.length < 3) {
-          for (let i = 0; i < this.debrisList.length; i++) {
-            const d = this.debrisList[i];
-            if (!d.caught && d.mesh.position.distanceTo(netPos) < 1.1) {
-              d.caught = true;
-              this.scene.remove(d.mesh);
-              this.debrisList.splice(i, 1);
-              const caughtYield = (Object.keys(d.yields)[0] as ResourceId) || 'wood';
-              trapped.push(caughtYield);
-              s.data!.trappedItems = trapped;
-              soundManager.playItemCollect();
-
-              // Add visual item inside net
-              const cGroup = s.mesh.getObjectByName('caughtItems');
-              if (cGroup) {
-                const mini = createDebrisMesh(d.type);
-                mini.scale.set(0.4, 0.4, 0.4);
-                mini.position.set((trapped.length - 2) * 0.4, 0, 0);
-                cGroup.add(mini);
-              }
-              break;
-            }
-          }
-        }
-      }
-    });
-  }
+  // Update Stations: Boiling Purifiers, Sizzling Grills, Growing Crops, Collection Nets (StationSystem)
 
   // Update Contextual Raycast Interaction Prompt
   private updateInteractRaycast() {
@@ -1157,7 +744,7 @@ export class RaftEngine {
           }
         } else if (s.type === 'debris_compactor') {
           foundInteract = { structure: s, action: 'compactor' };
-          promptText = `[Left-Click / E] Open Debris Compactor (${this.compactorLoadedJunk}/10 Junk Loaded)`;
+          promptText = `[Left-Click / E] Open Debris Compactor (${this.stations.compactorLoadedJunk}/10 Junk Loaded)`;
           break;
         } else if (s.type === 'collection_net' && (s.data?.trappedItems?.length || 0) > 0) {
           foundInteract = { structure: s, action: 'collect_net' };
@@ -1316,7 +903,7 @@ export class RaftEngine {
     this.sharkSystem.update(dt, elapsed);
 
     // 7. Update Stations & Interact Raycast
-    this.updateStations(dt);
+    this.stations.updateStations(dt);
     this.updateInteractRaycast();
 
     // 8. Update Build Hologram

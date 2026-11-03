@@ -345,10 +345,10 @@ export default function App() {
         inventory={inventory}
         hotbar={hotbar}
         onFeedJunk={(res, count) => {
-          return engineRef.current ? engineRef.current.feedCompactorJunk(res, count) : false;
+          return engineRef.current ? engineRef.current.stations.feedCompactorJunk(res, count) : false;
         }}
         onForgeBlock={() => {
-          return engineRef.current ? engineRef.current.forgeCompactorBlock() : false;
+          return engineRef.current ? engineRef.current.stations.forgeCompactorBlock() : false;
         }}
       />
 
@@ -364,7 +364,7 @@ export default function App() {
           0
         )}
         onBuyItem={(item) => {
-          return engineRef.current ? engineRef.current.buyMerchantItem(item) : false;
+          return engineRef.current ? engineRef.current.stations.buyMerchantItem(item) : false;
         }}
       />
 
