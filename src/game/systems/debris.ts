@@ -2,19 +2,20 @@ import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { DebrisObject, ResourceId } from '../../types/game';
 import { createDebrisMesh } from '../visuals/models';
-import type { WorldState } from '../gameWorld';
 
 /**
  * DebrisSystem —— 漂浮物系统（拆分自 engine.ts，split step 8）。
  *
- * 职责：漂浮物的生成（类型/产量/网格）、漂浮漂移与自转、
- * 越界回收。列表与自增 id 存放在 WorldState.debris，
- * hook（钩取）与 stations（收集网）直接读写同一份数组。
+ * 职责：拥有漂浮物集合、生成
+ * （类型/产量/网格）、漂浮漂移与自转、越界回收。
+ *
+ * 消费方：hook（钩取）与 stations（收集网）通过 items 拿到**同一个活数组**
+ * 直接读写（标记 caught、splice 移除）——这是有意的共享可变集合，不是
+ * 封装泄漏；如未来要加网络同步，在此处替换为正式的增删 API。
  */
 
 export interface DebrisSystemContext {
   scene: THREE.Scene;
-  world: WorldState;
 }
 
 const SPAWN_INTERVAL = 3.4;
@@ -25,8 +26,17 @@ export class DebrisSystem {
   private ctx: DebrisSystemContext;
   private spawnTimer = 0;
 
+  /** 漂浮物集合（活数组：hook/stations 直接读写）与自增 id */
+  private debris: DebrisObject[] = [];
+  private nextDebrisId = 1;
+
   constructor(ctx: DebrisSystemContext) {
     this.ctx = ctx;
+  }
+
+  /** 漂浮物活数组（消费方直接读写：标记 caught / splice 移除） */
+  public get items(): DebrisObject[] {
+    return this.debris;
   }
 
   /** 生成一个漂浮物（customZ 为null时在上游远处随机生成） */
@@ -64,8 +74,8 @@ export class DebrisSystem {
     } else if (type === 'scrap') yields.scrap = 1;
     else if (type === 'stone') yields.stone = 1;
 
-    this.ctx.world.debris.push({
-      id: this.ctx.world.nextDebrisId++,
+    this.debris.push({
+      id: this.nextDebrisId++,
       mesh,
       type,
       caught: false,
@@ -78,7 +88,7 @@ export class DebrisSystem {
 
   /** 每帧：按节奏补充漂浮物（上限15），漂移/浮动/自转，越界回收 */
   public update(dt: number, elapsed: number, drift: number) {
-    const debris = this.ctx.world.debris;
+    const debris = this.debris;
 
     this.spawnTimer += dt;
     if (this.spawnTimer > SPAWN_INTERVAL && debris.length < MAX_DEBRIS) {
@@ -103,13 +113,13 @@ export class DebrisSystem {
 
   /** 清空所有漂浮物（世界重置/销毁用） */
   public dispose() {
-    this.ctx.world.debris.forEach((d) => this.ctx.scene.remove(d.mesh));
-    this.ctx.world.debris = [];
+    this.debris.forEach((d) => this.ctx.scene.remove(d.mesh));
+    this.debris = [];
   }
 }
 
 // ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
 
 export function createDebrisSystem(w: WorldView): DebrisSystem {
-  return new DebrisSystem({ scene: w.scene, world: w.state });
+  return new DebrisSystem({ scene: w.scene });
 }

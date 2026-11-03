@@ -1,5 +1,4 @@
 import {
-  DebrisObject,
   PlayerStats,
   HotbarSlot,
   InventorySlot,
@@ -56,35 +55,6 @@ export interface GameCallbacks {
 type WorldCallbacks = GameCallbacks & Required<Pick<GameCallbacks, 'onToast'>>;
 
 /**
- * 跨系统共享的可变世界状态（纯数据）。
- *
- * 设计约束：
- * - 只放跨系统共享的可变状态，不放服务/回调（引用走各系统 context），
- *   避免它变成新的 god object。
- * - 数据与行为分离：它是未来网络同步/存档扩展的天然快照边界
- *   （多人友好设计约束之一，见 docs/FEATURES_OFF.md §3）。
- */
-export interface WorldState {
-  /** 一天中的时间 0..1（0.25 = 正午，0.5 = 日落，0.75 = 午夜） */
-  dayTime: number;
-  /** 存活天数 */
-  dayCount: number;
-  /** 漂浮物列表（由 DebrisSystem 维护；hook/stations 通过它捕捞） */
-  debris: DebrisObject[];
-  /** 漂浮物自增 id（DebrisSystem 生成时使用） */
-  nextDebrisId: number;
-}
-
-function createWorldState(start: WorldDefinition['start']): WorldState {
-  return {
-    dayTime: start.dayTime,
-    dayCount: start.dayCount,
-    debris: [],
-    nextDebrisId: 1,
-  };
-}
-
-/**
  * GameWorld —— 玩法世界：组合根 + 主循环编排 + 输入语义分发。
  *
  * 与 GameEngine（gameEngine.ts）的分层：
@@ -92,17 +62,15 @@ function createWorldState(start: WorldDefinition['start']): WorldState {
  * - GameWorld 构造并接线所有玩法系统，实现 EngineDelegate 消费引擎：
  *   每帧 tick 顺序、按键到系统动作的映射都在这里。
  *
- * 场景内容（商人筏位置、开局漂浮物等）来自 WorldDefinition（data 层），
- * 本类不硬编码；存档持久化归 SaveSystem。
- * 玩法规则与状态归各系统；跨系统共享的可变数据在 WorldState（this.state）；
+ * 场景内容（商人筏、鲨鱼、玩家出生点、开局漂浮物等）来自 WorldDefinition
+ * （data 层），本类不硬编码；存档持久化归 SaveSystem。
+ * 玩法规则与状态归各系统：时间归 TimeSystem、漂浮物集合归 DebrisSystem、
+ * 各实体归各自的管理器（entity-manager 模式，见 lifecycle.ts）；
  * 系统间通知走事件总线 core/events.ts。
  */
 export class GameWorld implements EngineDelegate {
   // 引擎基础设施（scene/camera/renderer/循环/原始输入）
   public engine: GameEngine;
-
-  /** 跨系统共享的可变世界状态（时间、漂浮物） */
-  public state: WorldState;
 
   // 玩法系统
   public playerSystem: PlayerSystem;
@@ -154,9 +122,6 @@ export class GameWorld implements EngineDelegate {
       onToast: (text, color) => events.emit('toast', { text, color }),
     };
 
-    // World state seeded from the definition (time, floating debris, ids)
-    this.state = createWorldState(definition.start);
-
     // Engine first: scene/camera/renderer/input bootstrap
     this.engine = new GameEngine(container);
     this.engine.delegate = this;
@@ -170,10 +135,10 @@ export class GameWorld implements EngineDelegate {
       camera: this.engine.camera,
       keys: this.engine.input.keys,
       isPointerLocked: () => this.isPointerLocked,
-      state: this.state,
       definition: this.definition,
       player: () => this.playerSystem,
       inventory: () => this.inventorySystem,
+      debris: () => this.debrisSystem,
       build: () => this.build,
       hook: () => this.hookSystem,
       fishing: () => this.fishingSystem,
@@ -287,11 +252,11 @@ export class GameWorld implements EngineDelegate {
   private registerTickers() {
     this.tickers.push(
       { name: 'time', tick: (dt) => this.time.update(dt) },
-      { name: 'weather', tick: (dt) => this.weatherSystem.update(dt, this.engine.camera.position, this.state.dayTime) },
+      { name: 'weather', tick: (dt) => this.weatherSystem.update(dt, this.engine.camera.position, this.time.dayTime) },
       {
         name: 'ocean',
         tick: (_dt, elapsed) => {
-          this.oceanEnv.updateTimeOfDay(this.state.dayTime);
+          this.oceanEnv.updateTimeOfDay(this.time.dayTime);
           this.oceanEnv.updateWaves(
             elapsed,
             this.getEffectiveDrift(),
@@ -311,7 +276,7 @@ export class GameWorld implements EngineDelegate {
             effectiveDrift: this.getEffectiveDrift(),
             playerPos: this.playerSystem.localPlayer.pos,
             activeToolAction: this.getActivePrimaryAction() ?? null,
-            debrisList: this.state.debris,
+            debrisList: this.debrisSystem.items,
             addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
           }),
       },
@@ -494,8 +459,7 @@ export class GameWorld implements EngineDelegate {
     this.saveSystem.clear();
     this.build.clearAll();
     this.sharkSystem.reset();
-    this.state.dayCount = this.definition.start.dayCount;
-    this.state.dayTime = this.definition.start.dayTime;
+    this.time.resetTo(this.definition.start);
     this.build.createInitialRaft();
     this.playerSystem.respawnPlayer();
     this.callbacks.onToast('🔄 World reset to initial 2x2 starter raft!', '#38bdf8');

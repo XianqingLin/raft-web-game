@@ -1,6 +1,6 @@
 import type { WorldView } from '../worldView';
 import { WorldSaveData, PlayerStats, HotbarSlot, InventorySlot } from '../../types/game';
-import type { WorldState } from '../gameWorld';
+import type { TimeSystem } from './time';
 import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from '../storage';
 import { BuildSystem } from './build';
 import { InventorySystem } from './inventory';
@@ -18,7 +18,7 @@ import { SharkSystem } from './shark';
  */
 
 export interface SaveSystemContext {
-  state: WorldState;
+  time: TimeSystem;
   build: BuildSystem;
   inventory: InventorySystem;
   player: PlayerSystem;
@@ -64,14 +64,14 @@ export class SaveSystem {
   }
 
   public save(notify: boolean = true): WorldSaveData {
-    const { state, build, inventory, player, shark, definition } = this.ctx;
+    const { time, build, inventory, player, shark, definition } = this.ctx;
 
     const save: WorldSaveData = {
       version: 1,
       worldName: definition.worldName,
       timestamp: Date.now(),
-      dayCount: state.dayCount,
-      dayTime: state.dayTime,
+      dayCount: time.dayCount,
+      dayTime: time.dayTime,
       sharkDefeatedOnce: shark.sharkDefeatedOnce,
       structures: build.serializeStructures(),
       player: {
@@ -94,14 +94,13 @@ export class SaveSystem {
 
   /** 把存档应用到各系统并推送 UI 更新 */
   public load(save: WorldSaveData): boolean {
-    const { state, build, inventory, player, shark } = this.ctx;
+    const { time, build, inventory, player, shark } = this.ctx;
     if (!save || !Array.isArray(save.structures)) return false;
 
     // Clear existing structures and reconstruct all preserving exact IDs
     build.loadFrom(save.structures);
 
-    if (save.dayCount) state.dayCount = save.dayCount;
-    if (save.dayTime !== undefined) state.dayTime = save.dayTime;
+    time.restore(save.dayTime, save.dayCount);
 
     if (save.sharkDefeatedOnce !== undefined) {
       shark.setDefeated(save.sharkDefeatedOnce);
@@ -142,7 +141,7 @@ export class SaveSystem {
 
 export function createSaveSystem(w: WorldView): SaveSystem {
   return new SaveSystem({
-    state: w.state,
+    time: w.time(),
     build: w.build(),
     inventory: w.inventory(),
     player: w.player(),

@@ -1,9 +1,9 @@
 import type * as THREE from 'three';
-import type { WorldState } from './gameWorld';
 import type { GameCallbacks } from './gameWorld';
 import type { WorldDefinition } from '../data/worldDefinition';
 import type { OceanEnvironment } from './environment/ocean';
 import type { IslandManager } from './environment/islands';
+import type { DebrisSystem } from './systems/debris';
 import type { PlayerSystem } from './systems/player';
 import type { InventorySystem } from './systems/inventory';
 import type { BuildSystem } from './systems/build';
@@ -33,13 +33,13 @@ export interface WorldView {
   keys: Record<string, boolean>;
   isPointerLocked: () => boolean;
 
-  // 跨系统共享状态与定义
-  state: WorldState;
+  // 世界定义（场景内容数据化；时间与实体集合归各自系统所有）
   definition: WorldDefinition;
 
   // 系统（惰性：按 GameWorld 的工厂调用顺序由先到后可用）
   player: () => PlayerSystem;
   inventory: () => InventorySystem;
+  debris: () => DebrisSystem;
   build: () => BuildSystem;
   hook: () => HookSystem;
   fishing: () => FishingSystem;
