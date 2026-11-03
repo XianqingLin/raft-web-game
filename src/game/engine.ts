@@ -12,10 +12,9 @@ import {
   WeatherType,
   RemotePlayer,
   WorldSaveData,
-  SerializedStructure,
   MerchantItem,
 } from '../types/game';
-import { ITEM_DEFINITIONS, BUILDING_DEFINITIONS, CRAFTING_RECIPES } from '../data/itemsAndRecipes';
+import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
 import { soundManager } from '../audio/soundManager';
 import {
   BLOCK_SIZE,
@@ -35,6 +34,7 @@ import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from './storage
 import { SharkSystem } from './shark';
 import { InventorySystem } from './inventory';
 import { BuildSystem } from './build';
+import { PlayerSystem } from './player';
 import { events } from '../core/events';
 
 export interface GameCallbacks {
@@ -80,26 +80,8 @@ export class RaftEngine {
   public get activeHotbarIdx(): number { return this.inventorySystem.activeHotbarIdx; }
   private callbacks: EngineCallbacks;
 
-  // Player State
-  public player = {
-    pos: new THREE.Vector3(0, BLOCK_HEIGHT / 2 + 1.7, 0),
-    vel: new THREE.Vector3(0, 0, 0),
-    yaw: 0,
-    pitch: 0,
-    speed: 6.2,
-    onGround: true,
-    inWater: false,
-    waterTime: 0,
-    stats: {
-      health: 100,
-      maxHealth: 100,
-      hunger: 90,
-      maxHunger: 100,
-      thirst: 90,
-      maxThirst: 100,
-      isDead: false,
-    } as PlayerStats,
-  };
+  // Player System (owns player state, movement physics, survival decay, respawn)
+  public playerSystem: PlayerSystem;
 
   // Raft Build System (owns structures map, build mode, hologram, collision)
   public build: BuildSystem;
@@ -125,7 +107,6 @@ export class RaftEngine {
   // Input & Controls
   public keys: Record<string, boolean> = {};
   public isPointerLocked = false;
-  private spaceKeyHandled = false;
   private mouseSensitivity = 0.0022;
 
   // Time & Day Cycle
@@ -151,7 +132,6 @@ export class RaftEngine {
   private autoSaveTimer: any = null;
   private lastNetMoveSendTime: number = 0;
   // UI push throttles (avoid per-frame React re-renders)
-  private statsPushTimer: number = 0;
   private lastPushedTimeStr: string = '';
 
   constructor(
@@ -164,31 +144,6 @@ export class RaftEngine {
       ...callbacks,
       onToast: (text, color) => events.emit('toast', { text, color }),
     };
-
-    // Inventory & Crafting System
-    this.inventorySystem = new InventorySystem({
-      callbacks: {
-        onToast: (text, color) => this.callbacks.onToast(text, color),
-        onHotbarChange: (hotbar, activeIdx) => this.callbacks.onHotbarChange(hotbar, activeIdx),
-        onInventoryChange: (inv) => this.callbacks.onInventoryChange(inv),
-        onStatsChange: (stats) => this.callbacks.onStatsChange(stats),
-      },
-      player: this.player,
-      onReadyToBuild: (building) => {
-        this.build.enterBuildMode(building);
-      },
-      onToolSlotChanged: (itemId) => {
-        this.updateEquippedTool();
-        if (itemId === 'hammer') {
-          this.build.enterBuildMode();
-        } else if (this.build.isBuildMode) {
-          this.build.exitBuildMode();
-        }
-        if (itemId !== 'fishing_rod' && this.fishingSystem && this.fishingSystem.state !== 'IDLE') {
-          this.fishingSystem.reset();
-        }
-      },
-    });
 
     // Scene
     this.scene = new THREE.Scene();
@@ -204,6 +159,42 @@ export class RaftEngine {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
     container.appendChild(this.renderer.domElement);
+
+    // Player System (owns player state & physics; created before systems that
+    // reference the shared player object; build/island hooked up lazily)
+    this.playerSystem = new PlayerSystem({
+      camera: this.camera,
+      keys: this.keys,
+      getPointerLocked: () => this.isPointerLocked,
+      build: () => this.build,
+      getIslandHeight: (x, z) => this.islandManager.getHeightAt(x, z),
+      onStatsChange: (stats) => this.callbacks.onStatsChange(stats),
+    });
+
+    // Inventory & Crafting System
+    this.inventorySystem = new InventorySystem({
+      callbacks: {
+        onToast: (text, color) => this.callbacks.onToast(text, color),
+        onHotbarChange: (hotbar, activeIdx) => this.callbacks.onHotbarChange(hotbar, activeIdx),
+        onInventoryChange: (inv) => this.callbacks.onInventoryChange(inv),
+        onStatsChange: (stats) => this.callbacks.onStatsChange(stats),
+      },
+      player: this.playerSystem.player,
+      onReadyToBuild: (building) => {
+        this.build.enterBuildMode(building);
+      },
+      onToolSlotChanged: (itemId) => {
+        this.updateEquippedTool();
+        if (itemId === 'hammer') {
+          this.build.enterBuildMode();
+        } else if (this.build.isBuildMode) {
+          this.build.exitBuildMode();
+        }
+        if (itemId !== 'fishing_rod' && this.fishingSystem && this.fishingSystem.state !== 'IDLE') {
+          this.fishingSystem.reset();
+        }
+      },
+    });
 
     // Ocean & Lighting
     this.oceanEnv = createOceanEnvironment(this.scene);
@@ -319,7 +310,7 @@ export class RaftEngine {
     this.build = new BuildSystem({
       scene: this.scene,
       camera: this.camera,
-      player: this.player,
+      player: this.playerSystem.player,
       inventory: this.inventorySystem,
       multiplayer: this.multiplayer,
       onSave: () => this.saveWorld(false),
@@ -330,7 +321,7 @@ export class RaftEngine {
     this.sharkSystem = new SharkSystem({
       scene: this.scene,
       camera: this.camera,
-      player: this.player,
+      player: this.playerSystem.player,
       structures: this.build.structures,
       raftGroup: this.build.raftGroup,
       multiplayer: this.multiplayer,
@@ -375,7 +366,7 @@ export class RaftEngine {
     this.setupEventListeners();
 
     // Notify initial state to React
-    this.callbacks.onStatsChange({ ...this.player.stats });
+    this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
     this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
     this.callbacks.onInventoryChange([...this.inventory]);
 
@@ -484,7 +475,7 @@ export class RaftEngine {
     window.addEventListener('keyup', (e) => {
       this.keys[e.code] = false;
       if (e.code === 'Space') {
-        this.spaceKeyHandled = false;
+        this.playerSystem.releaseSpace();
       }
     });
 
@@ -494,10 +485,10 @@ export class RaftEngine {
 
     window.addEventListener('mousemove', (e) => {
       if (!this.isPointerLocked) return;
-      this.player.yaw -= e.movementX * this.mouseSensitivity;
-      this.player.pitch -= e.movementY * this.mouseSensitivity;
+      this.playerSystem.player.yaw -= e.movementX * this.mouseSensitivity;
+      this.playerSystem.player.pitch -= e.movementY * this.mouseSensitivity;
       const maxPitch = Math.PI / 2 - 0.05;
-      this.player.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.player.pitch));
+      this.playerSystem.player.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.playerSystem.player.pitch));
     });
 
     window.addEventListener('wheel', (e) => {
@@ -554,17 +545,17 @@ export class RaftEngine {
         const cookedId: ItemId = isShark ? 'cooked_shark_meat' : isFish ? 'cooked_fish' : 'cooked_potato';
 
         // If player is hungry (< 95), automatically eat on the spot!
-        if (this.player.stats.hunger < 95) {
+        if (this.playerSystem.player.stats.hunger < 95) {
           const hungerBonus = isShark ? 65 : isFish ? 40 : 25;
           const healthBonus = isShark ? 30 : isFish ? 15 : 8;
-          this.player.stats.hunger = Math.min(100, this.player.stats.hunger + hungerBonus);
-          this.player.stats.health = Math.min(100, this.player.stats.health + healthBonus);
+          this.playerSystem.player.stats.hunger = Math.min(100, this.playerSystem.player.stats.hunger + hungerBonus);
+          this.playerSystem.player.stats.health = Math.min(100, this.playerSystem.player.stats.health + healthBonus);
           soundManager.playEat();
           this.callbacks.onToast(
             `Ate freshly grilled ${isShark ? 'Shark Steak' : isFish ? 'Fish' : 'Potato'}! (+${hungerBonus} Hunger, +${healthBonus} HP)`,
             '#22c55e'
           );
-          this.callbacks.onStatsChange({ ...this.player.stats });
+          this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
         } else {
           // If already full, store in inventory
           this.inventorySystem.addItemToInventory(cookedId, 1);
@@ -640,11 +631,11 @@ export class RaftEngine {
     // 2. Purifier - Automatic Boil & Automatic Drink/Store
     if (structure.type === 'purifier') {
       if (structure.data?.purifierFreshWater) {
-        if (this.player.stats.thirst < 95) {
-          this.player.stats.thirst = Math.min(100, this.player.stats.thirst + 45);
+        if (this.playerSystem.player.stats.thirst < 95) {
+          this.playerSystem.player.stats.thirst = Math.min(100, this.playerSystem.player.stats.thirst + 45);
           soundManager.playDrink();
           this.callbacks.onToast('Drank fresh clean water! (+45 Thirst)', '#38bdf8');
-          this.callbacks.onStatsChange({ ...this.player.stats });
+          this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
         } else {
           let foundEmpty: HotbarSlot | InventorySlot | null = null;
           for (const slot of this.hotbar) {
@@ -819,10 +810,10 @@ export class RaftEngine {
       if (this.dayTime > 0.55 || this.dayTime < 0.05) {
         this.dayTime = 0.15;
         this.dayCount++;
-        this.player.stats.health = Math.min(100, this.player.stats.health + 35);
+        this.playerSystem.player.stats.health = Math.min(100, this.playerSystem.player.stats.health + 35);
         soundManager.playDrink();
         this.callbacks.onToast(`Rested peacefully until morning. Day ${this.dayCount}!`, '#38bdf8');
-        this.callbacks.onStatsChange({ ...this.player.stats });
+        this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
       } else {
         this.callbacks.onToast('You can only sleep during the night!', '#94a3b8');
       }
@@ -901,7 +892,7 @@ export class RaftEngine {
         this.fishingSystem.cast(rodTip, lookDir);
       } else {
         // Reel line in!
-        const result = this.fishingSystem.reel(this.player.pos);
+        const result = this.fishingSystem.reel(this.playerSystem.player.pos);
         if (result.caught) {
           this.inventorySystem.addItemToInventory(result.item, 1);
           if (activeSlot.durability !== undefined) {
@@ -918,22 +909,22 @@ export class RaftEngine {
       this.sharkSystem.spearThrust(this.currentToolModel);
     } else if (activeSlot?.itemId === 'cup_freshwater') {
       // Drink
-      this.player.stats.thirst = Math.min(100, this.player.stats.thirst + 45);
+      this.playerSystem.player.stats.thirst = Math.min(100, this.playerSystem.player.stats.thirst + 45);
       activeSlot.itemId = 'cup_empty';
       soundManager.playDrink();
       this.callbacks.onToast('Drank pure freshwater! (+45 Thirst)', '#38bdf8');
-      this.callbacks.onStatsChange({ ...this.player.stats });
+      this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
       this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
     } else if (activeSlot?.itemId === 'coconut') {
       // Eat Fresh Coconut
-      this.player.stats.hunger = Math.min(100, this.player.stats.hunger + 20);
-      this.player.stats.thirst = Math.min(100, this.player.stats.thirst + 25);
-      this.player.stats.health = Math.min(100, this.player.stats.health + 5);
+      this.playerSystem.player.stats.hunger = Math.min(100, this.playerSystem.player.stats.hunger + 20);
+      this.playerSystem.player.stats.thirst = Math.min(100, this.playerSystem.player.stats.thirst + 25);
+      this.playerSystem.player.stats.health = Math.min(100, this.playerSystem.player.stats.health + 5);
       activeSlot.count--;
       if (activeSlot.count <= 0) activeSlot.itemId = null;
       soundManager.playEat();
       this.callbacks.onToast('Ate fresh juicy Coconut! (+25 Thirst, +20 Hunger)', '#84cc16');
-      this.callbacks.onStatsChange({ ...this.player.stats });
+      this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
       this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
     } else if (
       activeSlot?.itemId === 'cooked_fish' ||
@@ -968,22 +959,22 @@ export class RaftEngine {
         hBonus = 18;
         hpBonus = 5;
         fName = 'Wild Berries';
-        this.player.stats.thirst = Math.min(100, this.player.stats.thirst + 8);
+        this.playerSystem.player.stats.thirst = Math.min(100, this.playerSystem.player.stats.thirst + 8);
       } else if (id === 'egg') {
         hBonus = 15;
         hpBonus = 4;
         fName = 'Seagull Egg';
       }
 
-      this.player.stats.hunger = Math.min(100, this.player.stats.hunger + hBonus);
-      this.player.stats.health = Math.min(100, this.player.stats.health + hpBonus);
+      this.playerSystem.player.stats.hunger = Math.min(100, this.playerSystem.player.stats.hunger + hBonus);
+      this.playerSystem.player.stats.health = Math.min(100, this.playerSystem.player.stats.health + hpBonus);
       activeSlot.count--;
       if (activeSlot.count <= 0) activeSlot.itemId = null;
       soundManager.playEat();
       this.callbacks.onToast(`Ate ${fName}! (+${hBonus} Hunger, +${hpBonus} HP)`, '#22c55e');
-      this.callbacks.onStatsChange({ ...this.player.stats });
+      this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
       this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-    } else if (activeSlot?.itemId === 'cup_empty' && (this.player.inWater || this.camera.position.y < 3.0)) {
+    } else if (activeSlot?.itemId === 'cup_empty' && (this.playerSystem.player.inWater || this.camera.position.y < 3.0)) {
       activeSlot.itemId = 'cup_saltwater';
       soundManager.playWaterSplash(0.9);
       this.callbacks.onToast('Gathered Cup of Ocean Saltwater', '#38bdf8');
@@ -1173,7 +1164,7 @@ export class RaftEngine {
         if (s.type === 'purifier') {
           if (s.data?.purifierFreshWater) {
             foundInteract = { structure: s, action: 'collect_fresh' };
-            const willDrink = this.player.stats.thirst < 95;
+            const willDrink = this.playerSystem.player.stats.thirst < 95;
             promptText = `[Left-Click / E] ${willDrink ? 'Drink Clean Fresh Water (+Thirst)' : 'Store Clean Water in Cup'}`;
             break;
           } else if (s.data?.purifierSaltWater) {
@@ -1188,7 +1179,7 @@ export class RaftEngine {
         } else if (s.type === 'grill') {
           if (s.data?.grillDone) {
             foundInteract = { structure: s, action: 'collect_grilled' };
-            const willEat = this.player.stats.hunger < 95;
+            const willEat = this.playerSystem.player.stats.hunger < 95;
             promptText = `[Left-Click / E] ${willEat ? 'Eat Cooked Food (+Hunger & Health)' : 'Store Cooked Food in Inventory'}`;
             break;
           } else if (s.data?.grillItem) {
@@ -1268,7 +1259,7 @@ export class RaftEngine {
       }
     }
 
-    if (!promptText && activeSlot?.itemId === 'cup_empty' && (this.player.inWater || this.camera.position.y < 3.0)) {
+    if (!promptText && activeSlot?.itemId === 'cup_empty' && (this.playerSystem.player.inWater || this.camera.position.y < 3.0)) {
       promptText = '[Left-Click / E] Scoop Ocean Saltwater';
     }
 
@@ -1285,50 +1276,7 @@ export class RaftEngine {
     this.callbacks.onInteractPrompt(promptText);
   }
 
-  // Survival Needs Decay
-  private updateSurvivalDecay(dt: number) {
-    if (this.player.stats.isDead) return;
-
-    // Thirst decays ~1 every 6s, Hunger decays ~1 every 9s
-    this.player.stats.thirst = Math.max(0, this.player.stats.thirst - dt * 0.16);
-    this.player.stats.hunger = Math.max(0, this.player.stats.hunger - dt * 0.11);
-
-    // Natural regeneration if well nourished
-    if (this.player.stats.thirst > 80 && this.player.stats.hunger > 80 && this.player.stats.health < 100) {
-      this.player.stats.health = Math.min(100, this.player.stats.health + dt * 0.8);
-    }
-
-    // Starvation / Dehydration damage
-    if (this.player.stats.thirst <= 0 || this.player.stats.hunger <= 0) {
-      this.player.stats.health = Math.max(0, this.player.stats.health - dt * 1.5);
-    }
-
-    if (this.player.stats.health <= 0) {
-      this.player.stats.isDead = true;
-      this.callbacks.onToast('YOU DIED. Respawning on Raft...', '#ef4444');
-      setTimeout(() => {
-        this.respawnPlayer();
-      }, 3000);
-    }
-
-    // Push stats to UI at most 4x/sec (event-driven pushes elsewhere stay immediate)
-    this.statsPushTimer -= dt;
-    if (this.statsPushTimer <= 0) {
-      this.statsPushTimer = 0.25;
-      this.callbacks.onStatsChange({ ...this.player.stats });
-    }
-  }
-
-  public respawnPlayer() {
-    this.player.pos.set(0, BLOCK_HEIGHT / 2 + 1.7, 0);
-    this.player.vel.set(0, 0, 0);
-    this.player.stats.health = 100;
-    this.player.stats.hunger = 70;
-    this.player.stats.thirst = 70;
-    this.player.stats.isDead = false;
-    this.callbacks.onStatsChange({ ...this.player.stats });
-    this.callbacks.onToast('Respawned safely!', '#22c55e');
-  }
+  // Survival decay & respawn moved to PlayerSystem (this.playerSystem)
 
   // Main Loop
   private animate() {
@@ -1366,134 +1314,8 @@ export class RaftEngine {
       this.weatherSystem.getOceanRoughness()
     );
 
-    // 3. Player Movement & Physics
-    if (this.isPointerLocked && !this.player.stats.isDead) {
-      this.camera.rotation.order = 'YXZ';
-      this.camera.rotation.y = this.player.yaw;
-      this.camera.rotation.x = this.player.pitch;
-
-      const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.yaw);
-      const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.yaw);
-
-      const move = new THREE.Vector3();
-      if (this.keys.KeyW) move.add(fwd);
-      if (this.keys.KeyS) move.sub(fwd);
-      if (this.keys.KeyD) move.add(right);
-      if (this.keys.KeyA) move.sub(right);
-      if (move.lengthSq() > 0) move.normalize();
-
-      const standingOnRaft = this.build.checkOnRaft(this.player.pos.x, this.player.pos.z);
-      const islandH = this.islandManager.getHeightAt(this.player.pos.x, this.player.pos.z);
-      const onIsland = islandH > 0.15;
-      const targetEyeY = this.build.calculateSurfaceHeight(this.player.pos.x, this.player.pos.y, this.player.pos.z, elapsed);
-      const isSolidGround = targetEyeY !== -Infinity;
-      const waterSurfaceEyeY = 0.65 + Math.sin(elapsed * 2.5) * 0.08;
-
-      // Physically in water ONLY when not on solid ground/island and near or below water surface
-      this.player.inWater = !isSolidGround && !onIsland && this.player.pos.y <= waterSurfaceEyeY + 0.25;
-
-      const speed = this.player.inWater ? this.player.speed * 0.42 : this.player.speed;
-      const nextX = this.player.pos.x + move.x * speed * dt;
-      const nextZ = this.player.pos.z + move.z * speed * dt;
-
-      // Obstacle collision against walls, window walls, pillars, and architecture
-      if (!this.build.checkHorizontalCollision(nextX, this.player.pos.z, this.player.pos.y)) {
-        this.player.pos.x = nextX;
-      }
-      if (!this.build.checkHorizontalCollision(this.player.pos.x, nextZ, this.player.pos.y)) {
-        this.player.pos.z = nextZ;
-      }
-
-      // Jump (when on solid ground) or swim up/climb onto raft (when in water)
-      if (this.keys.Space && this.player.onGround && isSolidGround) {
-        if (!this.spaceKeyHandled) {
-          this.player.vel.y = 5.8;
-          this.player.onGround = false;
-          this.spaceKeyHandled = true;
-        }
-      } else if (this.player.inWater) {
-        // In ocean: holding Space swims upwards towards the surface (capped at water surface, never into the air!)
-        if (this.keys.Space) {
-          if (this.player.pos.y < waterSurfaceEyeY - 0.05) {
-            this.player.vel.y = Math.min(2.6, this.player.vel.y + 14 * dt);
-            if (Math.random() < 0.06) soundManager.playWaterSplash(0.35);
-          } else {
-            // At water surface: clamp upward velocity so player bobs at surface and cannot fly into the air
-            this.player.vel.y = Math.min(0.4, this.player.vel.y);
-          }
-        }
-        // Climb smoothly out of water onto raft or island (ONLY allowed when player is at the waterline near the edge)
-        const canClimb = (standingOnRaft || onIsland) && this.player.pos.y >= 0.15 && this.player.pos.y <= 1.25;
-        if (canClimb && (this.keys.Space || move.lengthSq() > 0)) {
-          this.player.vel.y = 4.8;
-          this.player.inWater = false;
-          soundManager.playWaterSplash(0.6);
-        }
-      }
-    }
-
-    // Gravity & Ground Height (Foundations, Stairs, Upper Deck)
-    const targetFloorY = this.build.calculateSurfaceHeight(this.player.pos.x, this.player.pos.y, this.player.pos.z, elapsed);
-    const waterSurfaceEyeY = 0.65 + Math.sin(elapsed * 2.5) * 0.08;
-
-    // Ceiling bump check when jumping under second-story upper deck floor
-    for (const s of this.build.structures.values()) {
-      if (s.type === 'floor') {
-        const fx = s.gx * BLOCK_SIZE;
-        const fz = s.gz * BLOCK_SIZE;
-        if (Math.abs(this.player.pos.x - fx) <= BLOCK_SIZE / 2 && Math.abs(this.player.pos.z - fz) <= BLOCK_SIZE / 2) {
-          const ceilingY = BLOCK_HEIGHT / 2 + WALL_HEIGHT;
-          if (this.player.pos.y + 0.15 > ceilingY && this.player.pos.y - 1.7 < ceilingY - 0.4) {
-            this.player.pos.y = ceilingY - 0.15;
-            this.player.vel.y = 0;
-          }
-        }
-      }
-    }
-
-    if (targetFloorY !== -Infinity) {
-      // Solid ground physics (on raft foundation, stairs, upper floor, or island)
-      this.player.inWater = false;
-      this.player.vel.y -= 18.0 * dt;
-      this.player.pos.y += this.player.vel.y * dt;
-
-      if (this.player.pos.y <= targetFloorY) {
-        this.player.pos.y = targetFloorY;
-        this.player.vel.y = 0;
-        this.player.onGround = true;
-      } else if (this.player.pos.y > targetFloorY + 0.1) {
-        this.player.onGround = false;
-      }
-    } else {
-      // Not on solid ground
-      if (this.player.pos.y > waterSurfaceEyeY + 0.25) {
-        // Airborne in freefall: full gravity pulling down, no water drag, no swim upward acceleration
-        this.player.onGround = false;
-        this.player.inWater = false;
-        this.player.vel.y -= 18.0 * dt;
-        this.player.pos.y += this.player.vel.y * dt;
-      } else {
-        // IN OCEAN WATER - SWIMMING (CANNOT WALK ON WATER)
-        this.player.onGround = false;
-        this.player.inWater = true;
-
-        // Realistic water buoyancy:
-        // Player bobs naturally at water surface (eye level ~0.65 with wave motion)
-        const depth = waterSurfaceEyeY - this.player.pos.y;
-
-        if (depth > 0) {
-          // Submerged: buoyant force pushes player up towards surface
-          this.player.vel.y += (depth * 22 - this.player.vel.y * 5.5) * dt;
-        } else {
-          // Floating at surface or dropping in: gravity with water drag
-          this.player.vel.y -= 9 * dt;
-          this.player.vel.y *= Math.max(0, 1 - dt * 3.5);
-        }
-        this.player.pos.y += this.player.vel.y * dt;
-      }
-    }
-
-    this.camera.position.copy(this.player.pos);
+    // 3. Player Movement & Physics (PlayerSystem: walking, swimming, gravity, ceiling)
+    this.playerSystem.update(dt, elapsed);
 
     // 4. Hook Mechanics
     if (this.hookState === 'CHARGING') {
@@ -1548,17 +1370,17 @@ export class RaftEngine {
           this.hookState = 'FLOATING';
           soundManager.playWaterSplash(0.8);
         }
-        if (this.hookPos.distanceTo(this.player.pos) > 52) {
+        if (this.hookPos.distanceTo(this.playerSystem.player.pos) > 52) {
           this.hookState = 'RETRACTING';
         }
       } else if (this.hookState === 'FLOATING') {
         this.hookPos.z += effectiveDrift * dt;
         this.hookPos.y = 0.05 + Math.sin(elapsed * 3.5) * 0.04;
-        if (this.hookPos.distanceTo(this.player.pos) > 56) {
+        if (this.hookPos.distanceTo(this.playerSystem.player.pos) > 56) {
           this.hookState = 'RETRACTING';
         }
       } else if (this.hookState === 'RETRACTING') {
-        const pullTarget = new THREE.Vector3(this.player.pos.x, this.player.pos.y - 0.35, this.player.pos.z);
+        const pullTarget = new THREE.Vector3(this.playerSystem.player.pos.x, this.playerSystem.player.pos.y - 0.35, this.playerSystem.player.pos.z);
         const toPlayer = pullTarget.clone().sub(this.hookPos);
         const dist = toPlayer.length();
 
@@ -1630,7 +1452,7 @@ export class RaftEngine {
     this.fishingSystem.update(
       dt,
       fishingRodTip,
-      this.player.pos,
+      this.playerSystem.player.pos,
       elapsed,
       (x, z) => this.oceanEnv.getWaveHeightAt(x, z, elapsed, waveHMult, waveSMult)
     );
@@ -1658,7 +1480,7 @@ export class RaftEngine {
 
 
     // 6. Update Survival Decay (thirst/hunger/regen), Meat Drift & Shark
-    this.updateSurvivalDecay(dt);
+    this.playerSystem.updateSurvival(dt);
     this.sharkSystem.updateMeat(dt, elapsed, effectiveDrift);
     this.sharkSystem.update(dt, elapsed);
 
@@ -1677,12 +1499,12 @@ export class RaftEngine {
       if (now - this.lastNetMoveSendTime > 50) {
         this.lastNetMoveSendTime = now;
         this.multiplayer.broadcastLocalMovement(
-          this.player.pos,
-          this.player.yaw,
-          this.player.pitch,
-          this.player.stats.health,
-          this.player.stats.maxHealth,
-          this.player.inWater
+          this.playerSystem.player.pos,
+          this.playerSystem.player.yaw,
+          this.playerSystem.player.pitch,
+          this.playerSystem.player.stats.health,
+          this.playerSystem.player.stats.maxHealth,
+          this.playerSystem.player.inWater
         );
       }
     }
@@ -1704,12 +1526,12 @@ export class RaftEngine {
       sharkDefeatedOnce: this.sharkSystem.sharkDefeatedOnce,
       structures: serializedStructures,
       player: {
-        stats: { ...this.player.stats },
+        stats: { ...this.playerSystem.player.stats },
         hotbar: [...this.hotbar],
         inventory: [...this.inventory],
-        pos: { x: this.player.pos.x, y: this.player.pos.y, z: this.player.pos.z },
-        yaw: this.player.yaw,
-        pitch: this.player.pitch,
+        pos: { x: this.playerSystem.player.pos.x, y: this.playerSystem.player.pos.y, z: this.playerSystem.player.pos.z },
+        yaw: this.playerSystem.player.yaw,
+        pitch: this.playerSystem.player.pitch,
       },
     };
 
@@ -1745,14 +1567,14 @@ export class RaftEngine {
     if (!preservePlayer && save.player) {
       if (save.player.hotbar && Array.isArray(save.player.hotbar)) this.inventorySystem.hotbar = save.player.hotbar;
       if (save.player.inventory && Array.isArray(save.player.inventory)) this.inventorySystem.inventory = save.player.inventory;
-      if (save.player.stats) this.player.stats = { ...this.player.stats, ...save.player.stats };
+      if (save.player.stats) this.playerSystem.player.stats = { ...this.playerSystem.player.stats, ...save.player.stats };
       if (save.player.pos) {
-        this.player.pos.set(save.player.pos.x, save.player.pos.y, save.player.pos.z);
+        this.playerSystem.player.pos.set(save.player.pos.x, save.player.pos.y, save.player.pos.z);
       }
-      if (save.player.yaw !== undefined) this.player.yaw = save.player.yaw;
-      if (save.player.pitch !== undefined) this.player.pitch = save.player.pitch;
+      if (save.player.yaw !== undefined) this.playerSystem.player.yaw = save.player.yaw;
+      if (save.player.pitch !== undefined) this.playerSystem.player.pitch = save.player.pitch;
 
-      this.callbacks.onStatsChange({ ...this.player.stats });
+      this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
       this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
       this.callbacks.onInventoryChange([...this.inventory]);
     }
@@ -1774,7 +1596,7 @@ export class RaftEngine {
     this.dayCount = 1;
     this.dayTime = 0.25;
     this.build.createInitialRaft();
-    this.respawnPlayer();
+    this.playerSystem.respawnPlayer();
     this.callbacks.onToast('🔄 World reset to initial 2x2 starter raft!', '#38bdf8');
   }
 

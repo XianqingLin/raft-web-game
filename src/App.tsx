@@ -234,7 +234,7 @@ export default function App() {
   };
 
   const handleRespawn = () => {
-    engineRef.current?.respawnPlayer();
+    engineRef.current?.playerSystem.respawnPlayer();
     requestLock();
   };
 
