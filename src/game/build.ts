@@ -40,7 +40,6 @@ import {
 } from './models';
 import { events } from '../core/events';
 import { InventorySystem } from './inventory';
-import { MultiplayerClient } from './multiplayer';
 
 export interface GhostSnapCoord {
   gx: number;
@@ -60,7 +59,6 @@ export interface BuildSystemContext {
   /** 只读使用：幽灵网格落位意图判定需要玩家位置/视线高度 */
   player: { pos: THREE.Vector3 };
   inventory: InventorySystem;
-  multiplayer: MultiplayerClient;
   /** 放置/拆除成功后触发自动存档（engine.saveWorld(false)） */
   onSave: () => void;
   /** 岛屿地形高度（脚下高度判定用） */
@@ -284,24 +282,6 @@ export class BuildSystem {
     if (checkCost) {
       soundManager.playHammerBuild();
       events.emit('toast', { text: `Built ${def.name}!`, color: '#22c55e' });
-
-      // Broadcast to multiplayer room
-      if (this.ctx.multiplayer?.isConnected) {
-        this.ctx.multiplayer.broadcastStructurePlaced({
-          id: key,
-          type,
-          gx,
-          gy,
-          gz,
-          rotation: rot,
-          health: 100,
-          maxHealth: 100,
-          posX,
-          posY,
-          posZ,
-          data: placed.data,
-        });
-      }
       this.ctx.onSave();
     }
 
@@ -345,10 +325,6 @@ export class BuildSystem {
     events.emit('toast', { text: `Demolished ${def?.name || 'Structure'} (+Refund)`, color: '#f59e0b' });
     events.emit('structureDemolished', { id: target.id });
 
-    // Broadcast demolition
-    if (this.ctx.multiplayer?.isConnected) {
-      this.ctx.multiplayer.broadcastStructureDemolished(target.id);
-    }
     this.ctx.onSave();
 
     this.updateSailSpeed();

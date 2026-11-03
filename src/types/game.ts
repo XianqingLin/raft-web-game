@@ -154,22 +154,6 @@ export interface SharkData {
   inWaterAttackTimer: number;
 }
 
-export interface RemotePlayer {
-  id: string;
-  name: string;
-  color: string;
-  x: number;
-  y: number;
-  z: number;
-  yaw: number;
-  pitch: number;
-  health: number;
-  maxHealth: number;
-  isSwimming: boolean;
-  activeItem?: ItemId | null;
-  lastUpdated: number;
-}
-
 export interface SerializedStructure {
   id: string;
   type: BuildingType;
@@ -208,7 +192,6 @@ export interface MerchantItem {
 
 export interface WorldSaveData {
   version: number;
-  roomId: string;
   worldName: string;
   timestamp: number;
   dayCount: number;
@@ -223,9 +206,10 @@ export interface WorldSaveData {
     yaw: number;
     pitch: number;
   };
-  // NOTE: Legacy save fields `milestones` / `unlockedAchievementIds` (achievement
-  // system) and `signalArray` / `unlockedLoreIds` / `completedLocationIds`
-  // (story/landmark system) are intentionally accepted on load but ignored.
-  // Both systems removed 2026-11-03 — see docs/FEATURES_OFF.md.
+  // NOTE: Legacy save fields `roomId` (multiplayer server room, removed
+  // 2026-11-03), `milestones` / `unlockedAchievementIds` (achievement system)
+  // and `signalArray` / `unlockedLoreIds` / `completedLocationIds`
+  // (story/landmark system) are intentionally accepted on load but ignored —
+  // see docs/FEATURES_OFF.md.
 }
 

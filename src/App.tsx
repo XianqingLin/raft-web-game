@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { RaftEngine } from './game/engine';
-import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, SharkData, WeatherType, RemotePlayer } from './types/game';
+import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, SharkData, WeatherType } from './types/game';
 import { HUD } from './components/HUD';
 import { InventoryCraftingModal } from './components/InventoryCraftingModal';
 import { PauseMenu } from './components/PauseMenu';
@@ -81,12 +81,7 @@ export default function App() {
   const [dayProgress, setDayProgress] = useState(0.25);
   const [weather, setWeather] = useState<WeatherType>('CLEAR');
 
-  const [multiplayerStatus, setMultiplayerStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'offline'>('connecting');
-  const [remotePlayers, setRemotePlayers] = useState<RemotePlayer[]>([]);
-  const [localPlayerName, setLocalPlayerName] = useState('Survivor');
-  const [localPlayerColor, setLocalPlayerColor] = useState('#38bdf8');
   const [sharkDefeatedOnce, setSharkDefeatedOnce] = useState(false);
-  const [roomId, setRoomId] = useState('ocean-world-1');
 
   // Toasts 由事件总线 (core/events.ts) 驱动，store 见 state/uiStore.ts
   const toasts = useUiStore((s) => s.toasts);
@@ -128,8 +123,6 @@ export default function App() {
       },
       onWeatherChange: (newWeather) => setWeather(newWeather),
       onToggleInventory: () => toggleInventory(),
-      onMultiplayerStatusChange: (status) => setMultiplayerStatus(status),
-      onMultiplayerPlayersChange: (players) => setRemotePlayers(players),
       onOpenCompactor: () => {
         setIsCompactorOpen(true);
         document.exitPointerLock?.();
@@ -141,10 +134,6 @@ export default function App() {
     });
 
     engineRef.current = engine;
-    if (engine.multiplayer) {
-      setLocalPlayerName(engine.multiplayer.localName);
-      setLocalPlayerColor(engine.multiplayer.localColor);
-    }
 
     // Pointer lock listener
     const onPointerLockChange = () => {
@@ -246,16 +235,6 @@ export default function App() {
     engineRef.current?.resetWorld();
   };
 
-  const handleUpdatePlayerName = (name: string) => {
-    setLocalPlayerName(name);
-    engineRef.current?.multiplayer?.setPlayerName(name);
-  };
-
-  const handleSwitchRoom = (newRoom: string) => {
-    setRoomId(newRoom);
-    engineRef.current?.switchRoom(newRoom);
-  };
-
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-sky-300 font-sans">
       {/* Three.js Isolated Canvas Container */}
@@ -286,10 +265,6 @@ export default function App() {
         timeStr={timeStr}
         dayProgress={dayProgress}
         weather={weather}
-        multiplayerStatus={multiplayerStatus}
-        remotePlayers={remotePlayers}
-        localPlayerName={localPlayerName}
-        localPlayerColor={localPlayerColor}
         sharkDefeatedOnce={sharkDefeatedOnce}
         onOpenCompactor={() => {
           setIsCompactorOpen(true);
@@ -375,12 +350,6 @@ export default function App() {
         onRespawn={handleRespawn}
         onSaveWorld={handleSaveWorld}
         onResetWorld={handleResetWorld}
-        multiplayerStatus={multiplayerStatus}
-        remotePlayersCount={remotePlayers.length}
-        playerName={localPlayerName}
-        onUpdatePlayerName={handleUpdatePlayerName}
-        roomId={roomId}
-        onSwitchRoom={handleSwitchRoom}
       />
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Volume2, VolumeX, RotateCcw, Compass, Save, Users, RefreshCw } from 'lucide-react';
+import { Play, Volume2, VolumeX, RotateCcw, Compass, Save, RefreshCw } from 'lucide-react';
 import { soundManager } from '../audio/soundManager';
 
 interface PauseMenuProps {
@@ -8,12 +8,6 @@ interface PauseMenuProps {
   onRespawn: () => void;
   onSaveWorld?: () => void;
   onResetWorld?: () => void;
-  multiplayerStatus?: string;
-  remotePlayersCount?: number;
-  playerName?: string;
-  onUpdatePlayerName?: (name: string) => void;
-  roomId?: string;
-  onSwitchRoom?: (room: string) => void;
 }
 
 export const PauseMenu: React.FC<PauseMenuProps> = ({
@@ -22,15 +16,7 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
   onRespawn,
   onSaveWorld,
   onResetWorld,
-  multiplayerStatus = 'connected',
-  remotePlayersCount = 0,
-  playerName = 'Survivor',
-  onUpdatePlayerName,
-  roomId = 'ocean-world-1',
-  onSwitchRoom,
 }) => {
-  const [nameInput, setNameInput] = useState(playerName);
-  const [roomInput, setRoomInput] = useState(roomId);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   if (!isOpen) return null;
@@ -46,63 +32,8 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
           </h1>
         </div>
         <p className="text-xs text-slate-300 max-w-md mb-4 leading-relaxed">
-          Survive the open sea, salvage ocean drift with your hook, defend against Bruce, craft survival stations, and build together in real-time multiplayer!
+          Survive the open sea, salvage ocean drift with your hook, defend against Bruce, craft survival stations, and build your raft!
         </p>
-
-        {/* Multiplayer World & Survivor Profile Card */}
-        <div className="w-full bg-slate-950/85 border border-sky-500/20 rounded-2xl p-4 text-left mb-4 shadow-inner">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
-              <Users className="w-4 h-4" />
-              <span>Multiplayer Server</span>
-            </span>
-            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-900 border border-white/10">
-              <span className={`w-2 h-2 rounded-full ${multiplayerStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span className="text-slate-200">
-                {multiplayerStatus === 'connected' ? `Online (${remotePlayersCount + 1} Survivors)` : 'Connecting...'}
-              </span>
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <div>
-              <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Your Survivor Tag</label>
-              <div className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  maxLength={18}
-                  className="bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white w-full focus:outline-none focus:border-sky-400"
-                />
-                <button
-                  onClick={() => onUpdatePlayerName?.(nameInput)}
-                  className="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">World Room Code</label>
-              <div className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={roomInput}
-                  onChange={(e) => setRoomInput(e.target.value)}
-                  className="bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white w-full font-mono focus:outline-none focus:border-sky-400"
-                />
-                <button
-                  onClick={() => onSwitchRoom?.(roomInput)}
-                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
-                >
-                  Join
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Controls Grid */}
         <div className="w-full bg-slate-950/80 border border-white/10 rounded-2xl p-3.5 text-left mb-4 text-xs text-slate-300 flex flex-col gap-1.5">

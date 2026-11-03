@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { SharkData, PlacedStructure, ItemId } from '../types/game';
 import { soundManager } from '../audio/soundManager';
 import { BLOCK_SIZE, createSharkMesh, applySharkSkin, createSharkMeatMesh } from './models';
-import { MultiplayerClient } from './multiplayer';
 import { PlayerState } from './context';
 
 /**
@@ -24,7 +23,6 @@ export interface SharkContext {
   player: PlayerState;
   structures: Map<string, PlacedStructure>;
   raftGroup: THREE.Group;
-  multiplayer: MultiplayerClient;
   callbacks: SharkCallbacks;
   addItemToInventory: (itemId: ItemId, count?: number) => boolean;
   saveWorld: (notify?: boolean) => void;
@@ -60,7 +58,6 @@ export class SharkSystem {
   private player: PlayerState;
   private structures: Map<string, PlacedStructure>;
   private raftGroup: THREE.Group;
-  private multiplayer: MultiplayerClient;
   private callbacks: SharkCallbacks;
   private addItemToInventory: (itemId: ItemId, count?: number) => boolean;
   private saveWorld: (notify?: boolean) => void;
@@ -72,7 +69,6 @@ export class SharkSystem {
     this.player = ctx.player;
     this.structures = ctx.structures;
     this.raftGroup = ctx.raftGroup;
-    this.multiplayer = ctx.multiplayer;
     this.callbacks = ctx.callbacks;
     this.addItemToInventory = ctx.addItemToInventory;
     this.saveWorld = ctx.saveWorld;
@@ -80,12 +76,6 @@ export class SharkSystem {
     // Shark Mesh (High-Fidelity Predatory Great White)
     this.sharkMesh = createSharkMesh(this.sharkDefeatedOnce);
     this.scene.add(this.sharkMesh);
-  }
-
-  // Multiplayer: fellow survivors defeated Bruce -> blood skin
-  applyBloodSkin() {
-    this.sharkDefeatedOnce = true;
-    applySharkSkin(this.sharkMesh, true);
   }
 
   // Save restore
@@ -356,9 +346,6 @@ export class SharkSystem {
         if (!this.sharkDefeatedOnce) {
           this.sharkDefeatedOnce = true;
           applySharkSkin(this.sharkMesh, true);
-          if (this.multiplayer?.isConnected) {
-            this.multiplayer.broadcastSharkDefeated();
-          }
           this.saveWorld(false);
           this.callbacks.onToast('🩸 BRUCE DEFEATED! Prime Shark Meat dropped into the sea! Transforms into the BLOOD SHARK!', '#ef4444');
           soundManager.playAchievementUnlocked();

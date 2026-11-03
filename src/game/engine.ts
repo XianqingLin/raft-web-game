@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import {
-  ItemId,
   ResourceId,
-  BuildingType,
   PlayerStats,
   HotbarSlot,
   InventorySlot,
@@ -10,14 +8,10 @@ import {
   PlacedStructure,
   SharkData,
   WeatherType,
-  RemotePlayer,
   WorldSaveData,
 } from '../types/game';
 import { soundManager } from '../audio/soundManager';
 import {
-  BLOCK_SIZE,
-  BLOCK_HEIGHT,
-  WALL_HEIGHT,
   createDebrisMesh,
   createMerchantRaftMesh,
 } from './models';
@@ -25,7 +19,6 @@ import { createOceanEnvironment, OceanEnvironment } from './ocean';
 import { createWeatherSystem, WeatherSystem } from './weather';
 import { createIslandManager, IslandManager, IslandResource } from './islands';
 import { FishingSystem } from './fishing';
-import { MultiplayerClient } from './multiplayer';
 import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from './storage';
 import { SharkSystem } from './shark';
 import { InventorySystem } from './inventory';
@@ -49,8 +42,6 @@ export interface GameCallbacks {
   onTimeChange: (day: number, timeStr: string, progress: number) => void;
   onWeatherChange?: (weather: WeatherType) => void;
   onToggleInventory?: () => void;
-  onMultiplayerStatusChange?: (status: 'connecting' | 'connected' | 'disconnected' | 'offline') => void;
-  onMultiplayerPlayersChange?: (players: RemotePlayer[]) => void;
   onOpenCompactor?: () => void;
   onOpenMerchant?: () => void;
 }
@@ -117,12 +108,10 @@ export class RaftEngine {
   // Station System (grill/purifier/crop/net/chest/bed/compactor interactions + merchant trades)
   public stations: StationSystem;
 
-  // Animation frame id & Multiplayer
+  // Animation frame id
   private frameId: number = 0;
   private clock = new THREE.Clock();
-  public multiplayer: MultiplayerClient;
   private autoSaveTimer: any = null;
-  private lastNetMoveSendTime: number = 0;
   // UI push throttles (avoid per-frame React re-renders)
   private lastPushedTimeStr: string = '';
 
@@ -226,65 +215,6 @@ export class RaftEngine {
     // Hook & FPS Tool System (projectile state machine, rope, held tool models)
     this.hookSystem = new HookSystem({ scene: this.scene, camera: this.camera });
 
-    // Multiplayer Network Client
-    this.multiplayer = new MultiplayerClient(this.scene, this.camera, {
-      onStatusChange: (status) => this.callbacks.onMultiplayerStatusChange?.(status),
-      onPlayersChange: (players) => this.callbacks.onMultiplayerPlayersChange?.(players),
-      onRemoteStructurePlaced: (struct) => {
-        this.build.placeStructure(
-          struct.type as BuildingType,
-          struct.gx,
-          struct.gy,
-          struct.gz,
-          struct.rotation,
-          false,
-          struct.posX !== undefined ? { x: struct.posX, y: struct.posY!, z: struct.posZ! } : undefined
-        );
-        const placed = this.build.structures.get(struct.id);
-        if (placed && struct.data) {
-          placed.data = { ...placed.data, ...struct.data };
-        }
-      },
-      onRemoteStructureDemolished: (id) => {
-        this.build.removeStructure(id);
-      },
-      onRemoteStructureUpdated: (id, data) => {
-        const s = this.build.structures.get(id);
-        if (s) {
-          s.data = { ...s.data, ...data };
-        }
-      },
-      onRemoteSharkDefeated: () => {
-        this.sharkSystem.applyBloodSkin();
-        this.callbacks.onToast('🩸 Fellow survivors struck Bruce down! The beast resurrected as the BLOOD SHARK!', '#ef4444');
-      },
-      onWorldSync: (serverWorld) => {
-        if (!serverWorld || !Array.isArray(serverWorld.structures)) return;
-
-        const localSave = loadWorldLocally();
-        const serverTimestamp = serverWorld.timestamp || 0;
-        const localTimestamp = localSave?.timestamp || 0;
-
-        // If local save is newer and valid, upload newer local save to server so server catches up!
-        if (localSave && localTimestamp > serverTimestamp) {
-          fetch(`/api/world/${encodeURIComponent(this.multiplayer.roomId)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(localSave),
-          }).catch(() => { });
-          return;
-        }
-
-        // Server world is newer or client had no local save
-        if (serverWorld.structures.length > 0) {
-          const preservePlayer = !!localSave && !serverWorld.player;
-          this.loadWorld(serverWorld, preservePlayer);
-          this.callbacks.onToast(`🌍 Synced multiplayer world (${serverWorld.structures.length} structures)`, '#10b981');
-        }
-      },
-      onToast: (msg, color) => this.callbacks.onToast(msg, color),
-    });
-
     // Raft Build System: owns structures map, placement/demolition, build mode,
     // hologram, support/collision queries and structure serialization.
     this.build = new BuildSystem({
@@ -292,7 +222,6 @@ export class RaftEngine {
       camera: this.camera,
       player: this.playerSystem.player,
       inventory: this.inventorySystem,
-      multiplayer: this.multiplayer,
       onSave: () => this.saveWorld(false),
       getIslandHeight: (x, z) => this.islandManager.getHeightAt(x, z),
     });
@@ -325,7 +254,6 @@ export class RaftEngine {
       player: this.playerSystem.player,
       structures: this.build.structures,
       raftGroup: this.build.raftGroup,
-      multiplayer: this.multiplayer,
       callbacks: {
         onToast: (text, color) => this.callbacks.onToast(text, color),
         onSharkAlert: (alerting) => this.callbacks.onSharkAlert(alerting),
@@ -346,9 +274,6 @@ export class RaftEngine {
     } else {
       this.build.createInitialRaft();
     }
-
-    // Connect to Multiplayer World
-    this.multiplayer.connect();
 
     // Auto-save every 12 seconds
     this.autoSaveTimer = setInterval(() => {
@@ -909,24 +834,6 @@ export class RaftEngine {
     // 8. Update Build Hologram
     this.build.updateBuildHologram();
 
-    // 10. Multiplayer Remote Players & Local Movement Broadcast
-    if (this.multiplayer) {
-      this.multiplayer.update(dt, elapsed);
-
-      const now = performance.now();
-      if (now - this.lastNetMoveSendTime > 50) {
-        this.lastNetMoveSendTime = now;
-        this.multiplayer.broadcastLocalMovement(
-          this.playerSystem.player.pos,
-          this.playerSystem.player.yaw,
-          this.playerSystem.player.pitch,
-          this.playerSystem.player.stats.health,
-          this.playerSystem.player.stats.maxHealth,
-          this.playerSystem.player.inWater
-        );
-      }
-    }
-
     // Render Scene
     this.renderer.render(this.scene, this.camera);
   }
@@ -936,7 +843,6 @@ export class RaftEngine {
 
     const save: WorldSaveData = {
       version: 1,
-      roomId: this.multiplayer?.roomId || 'ocean-world-1',
       worldName: 'Oceanic Raft',
       timestamp: Date.now(),
       dayCount: this.dayCount,
@@ -955,21 +861,13 @@ export class RaftEngine {
 
     saveWorldLocally(save);
 
-    // Persist to server backend database/JSON storage
-    const targetRoom = this.multiplayer?.roomId || 'ocean-world-1';
-    fetch(`/api/world/${encodeURIComponent(targetRoom)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(save),
-    }).catch(() => { });
-
     if (notify) {
       this.callbacks.onToast('💾 World saved successfully!', '#10b981');
     }
     return save;
   }
 
-  public loadWorld(save: WorldSaveData, preservePlayer: boolean = false): boolean {
+  public loadWorld(save: WorldSaveData): boolean {
     if (!save || !Array.isArray(save.structures)) return false;
 
     // Clear existing structures and reconstruct all preserving exact IDs
@@ -982,7 +880,7 @@ export class RaftEngine {
       this.sharkSystem.setDefeated(save.sharkDefeatedOnce);
     }
 
-    if (!preservePlayer && save.player) {
+    if (save.player) {
       if (save.player.hotbar && Array.isArray(save.player.hotbar)) this.inventorySystem.hotbar = save.player.hotbar;
       if (save.player.inventory && Array.isArray(save.player.inventory)) this.inventorySystem.inventory = save.player.inventory;
       if (save.player.stats) this.playerSystem.player.stats = { ...this.playerSystem.player.stats, ...save.player.stats };
@@ -1000,13 +898,6 @@ export class RaftEngine {
     return true;
   }
 
-  public switchRoom(roomId: string) {
-    if (this.multiplayer) {
-      this.multiplayer.connect(roomId);
-      this.callbacks.onToast(`📡 Connecting to world room "${roomId}"...`, '#38bdf8');
-    }
-  }
-
   public resetWorld() {
     clearWorldLocally();
     this.build.clearAll();
@@ -1022,7 +913,6 @@ export class RaftEngine {
     this.saveWorld(false);
     if (this.frameId) cancelAnimationFrame(this.frameId);
     if (this.autoSaveTimer) clearInterval(this.autoSaveTimer);
-    if (this.multiplayer) this.multiplayer.disconnect();
     this.build.dispose();
     this.fishingSystem.dispose();
     this.weatherSystem.dispose();
