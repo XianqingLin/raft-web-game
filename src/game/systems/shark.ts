@@ -1,10 +1,11 @@
 import type { WorldView } from '../worldView';
 import * as THREE from 'three';
-import { SharkData, PlacedStructure, ItemId } from '../../types/game';
+import { PlacedStructure, ItemId } from '../../types/game';
+import { SharkData } from '../entities/shark';
 import { SharkSpawnDef } from '../../data/worldDefinition';
 import { soundManager } from '../../audio/soundManager';
 import { BLOCK_SIZE, createSharkMesh, applySharkSkin, createSharkMeatMesh } from '../visuals/models';
-import { PlayerState } from '../context';
+import { PlayerState } from '../entities/player';
 import { OCEAN_DRIFT_BASE } from '../environment/ocean';
 
 /**
@@ -12,7 +13,7 @@ import { OCEAN_DRIFT_BASE } from '../environment/ocean';
  * Extracted from engine.ts — owns shark state machine, mesh animation,
  * spear combat and the floating Prime Shark Meat drops.
  *
- * 实体：SharkData（纯数据，types/game.ts）。基数由 WorldDefinition.sharks
+ * 实体：SharkData（纯数据，entities/shark.ts）。基数由 WorldDefinition.sharks
  * 决定；本系统持有"实体数据 + 网格绑定"的实例集合，行为以单个实体为参数
  * （tickShark / spearThrust 逐实体判定）。sharkDefeatedOnce 是世界级进度
  * 标记（皮肤与剧情分支），不属于任何单条鲨鱼。

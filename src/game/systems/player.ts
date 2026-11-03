@@ -17,7 +17,7 @@ import { soundManager } from '../../audio/soundManager';
 import { events } from '../../core/events';
 import { BuildSystem } from './build';
 import { Tickable } from '../lifecycle';
-import { PlayerState } from '../context';
+import { PlayerState } from '../entities/player';
 
 /** 鼠标灵敏度（弧度/像素） */
 const MOUSE_SENSITIVITY = 0.0022;

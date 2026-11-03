@@ -2,7 +2,7 @@ import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { ItemId, PlacedStructure } from '../../types/game';
 import { BuildSystem } from './build';
-import { PlayerState } from '../context';
+import { PlayerState } from '../entities/player';
 import { FishingSystem } from './fishing';
 import { IslandManager, IslandResource } from '../environment/islands';
 import { SharkSystem } from './shark';

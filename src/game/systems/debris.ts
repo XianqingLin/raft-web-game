@@ -1,6 +1,7 @@
 import type { WorldView } from '../worldView';
 import * as THREE from 'three';
-import { DebrisObject, ResourceId } from '../../types/game';
+import { ResourceId } from '../../types/game';
+import { DebrisObject } from '../entities/debris';
 import { createDebrisMesh } from '../visuals/models';
 import { OCEAN_DRIFT_BASE } from '../environment/ocean';
 import { Tickable } from '../lifecycle';

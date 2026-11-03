@@ -3,11 +3,11 @@ import {
   HotbarSlot,
   InventorySlot,
   PlacedStructure,
-  SharkData,
   WeatherType,
   WorldSaveData,
   ToolActionKind,
 } from '../types/game';
+import { SharkData } from './entities/shark';
 import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
 import { WorldDefinition, DEFAULT_WORLD } from '../data/worldDefinition';
 import { createOceanEnvironment, OceanEnvironment } from './environment/ocean';

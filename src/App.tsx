@@ -5,7 +5,8 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GameWorld } from './game/gameWorld';
-import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, SharkData, WeatherType } from './types/game';
+import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, WeatherType } from './types/game';
+import { SharkData } from './game/entities/shark';
 import { HUD } from './components/HUD';
 import { InventoryCraftingModal } from './components/InventoryCraftingModal';
 import { PauseMenu } from './components/PauseMenu';

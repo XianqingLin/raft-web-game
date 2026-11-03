@@ -1,5 +1,6 @@
 import React from 'react';
-import { PlayerStats, HotbarSlot, BuildingType, SharkData, WeatherType } from '../types/game';
+import { PlayerStats, HotbarSlot, BuildingType, WeatherType } from '../types/game';
+import { SharkData } from '../game/entities/shark';
 import { ITEM_DEFINITIONS, BUILDING_DEFINITIONS } from '../data/itemsAndRecipes';
 import { Heart, Utensils, Droplets, Sun, Moon, AlertTriangle, Hammer, Backpack, Volume2, VolumeX, ShieldAlert, CloudRain, CloudFog, Save, Store, SlidersHorizontal } from 'lucide-react';
 import { soundManager } from '../audio/soundManager';

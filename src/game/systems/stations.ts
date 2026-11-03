@@ -11,7 +11,6 @@
 import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import {
-  DebrisObject,
   HotbarSlot,
   InventorySlot,
   ItemId,
@@ -19,6 +18,7 @@ import {
   PlacedStructure,
   ResourceId,
 } from '../../types/game';
+import { DebrisObject } from '../entities/debris';
 import { ITEM_DEFINITIONS } from '../../data/itemsAndRecipes';
 import { soundManager } from '../../audio/soundManager';
 import { createDebrisMesh } from '../visuals/models';

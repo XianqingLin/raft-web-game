@@ -2,7 +2,7 @@ import type { WorldView } from '../worldView';
 import { HotbarSlot, InventorySlot, ItemId, ResourceId, BuildingType } from '../../types/game';
 import { ITEM_DEFINITIONS, CRAFTING_RECIPES } from '../../data/itemsAndRecipes';
 import { soundManager } from '../../audio/soundManager';
-import { PlayerState } from '../context';
+import { PlayerState } from '../entities/player';
 
 /**
  * Inventory & Crafting System.

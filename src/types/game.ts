@@ -1,3 +1,13 @@
+/**
+ * 跨切面类型：物品/建筑枚举、UI 回调数据、存档格式、统计数值。
+ *
+ * 与 src/game/entities/ 的边界：entities/ 放"有世界在场感"的实体纯数据
+ * （PlayerState/SharkData/DebrisObject/MerchantEntity，由各管理器系统持有
+ * 集合）；本文件放它们引用的共享基型与不含实体生命周期的数据
+ * （PlacedStructure 因与存档格式 SerializedStructure、UI 弹窗强耦合，
+ * 暂留于此，待存档类型独立成模块时再迁）。
+ */
+
 export type WeatherType = 'CLEAR' | 'LIGHT_FOG' | 'HEAVY_RAIN';
 
 export type ResourceId =
@@ -111,17 +121,6 @@ export interface InventorySlot {
   durability?: number;
 }
 
-export interface DebrisObject {
-  id: number;
-  mesh: any; // THREE.Group
-  type: 'wood' | 'plastic' | 'leaf' | 'barrel' | 'crate' | 'stone' | 'scrap';
-  caught: boolean;
-  pos: { x: number; y: number; z: number };
-  bobPhase: number;
-  rotSpeed: number;
-  yields: Partial<Record<ResourceId, number>>;
-}
-
 export interface PlacedStructure {
   id: string;
   type: BuildingType;
@@ -144,23 +143,6 @@ export interface PlacedStructure {
     trappedItems?: ResourceId[];
     chestItems?: InventorySlot[];
   };
-}
-
-export type SharkState = 'CIRCLING' | 'STALKING_PLAYER' | 'ATTACKING_RAFT' | 'ATTACKING_PLAYER' | 'FLEEING';
-
-export interface SharkData {
-  health: number;
-  maxHealth: number;
-  state: SharkState;
-  pos: { x: number; y: number; z: number };
-  targetPos: { x: number; y: number; z: number };
-  angle: number;
-  circleRadius: number;
-  speed: number;
-  targetPlankKey: string | null;
-  biteTimer: number;
-  fleeTimer: number;
-  inWaterAttackTimer: number;
 }
 
 export interface SerializedStructure {
