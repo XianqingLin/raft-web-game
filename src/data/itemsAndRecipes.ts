@@ -108,6 +108,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     icon: '🥛',
     description: 'Scoop saltwater from the ocean to boil in a Simple Purifier.',
     stackSize: 4,
+    primaryAction: 'scoop_saltwater',
   },
   cup_saltwater: {
     id: 'cup_saltwater',
@@ -136,6 +137,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     description: 'Hold Left-Click to charge and launch into the ocean to grab floating debris.',
     stackSize: 1,
     durabilityMax: 50,
+    primaryAction: 'throw_hook',
   },
   hammer: {
     id: 'hammer',
@@ -156,6 +158,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     description: 'Thrust at the shark to defend raft foundations or yourself in water!',
     stackSize: 1,
     durabilityMax: 40,
+    primaryAction: 'spear_thrust',
   },
   fishing_rod: {
     id: 'fishing_rod',
@@ -166,6 +169,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     description: 'Cast into open sea to catch mackerel and tilapia.',
     stackSize: 1,
     durabilityMax: 30,
+    primaryAction: 'cast_fishing_rod',
   },
   metal_spear: {
     id: 'metal_spear',
@@ -176,6 +180,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     description: 'Heavy forged metal pike. Deals 50 damage (Bruce flees in just 2 hits)!',
     stackSize: 1,
     durabilityMax: 80,
+    primaryAction: 'spear_thrust',
   },
   reinforced_hook: {
     id: 'reinforced_hook',
@@ -186,6 +191,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     description: 'Long-range grappling hook with triple barb. Can snag up to 5 items per cast!',
     stackSize: 1,
     durabilityMax: 100,
+    primaryAction: 'throw_hook',
   },
   metal_ingot: {
     id: 'metal_ingot',

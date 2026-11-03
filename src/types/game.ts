@@ -37,6 +37,13 @@ export type ToolId =
 
 export type ItemId = ResourceId | ToolId;
 
+/** 手持工具左键点击时触发的动作种类（具体执行由 GameWorld 接线到各系统） */
+export type ToolActionKind =
+  | 'throw_hook'
+  | 'cast_fishing_rod'
+  | 'spear_thrust'
+  | 'scoop_saltwater';
+
 export type BuildingType =
   | 'foundation'
   | 'collection_net'
@@ -65,6 +72,8 @@ export interface ItemDef {
   description: string;
   stackSize: number;
   durabilityMax?: number;
+  /** 左键主动作（仅工具类物品有；缺省时左键走通用的消耗/使用路径） */
+  primaryAction?: ToolActionKind;
 }
 
 export interface CraftingRecipe {

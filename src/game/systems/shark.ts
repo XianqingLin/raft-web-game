@@ -1,8 +1,9 @@
+import type { WorldView } from '../worldView';
 import * as THREE from 'three';
-import { SharkData, PlacedStructure, ItemId } from '../types/game';
-import { soundManager } from '../audio/soundManager';
-import { BLOCK_SIZE, createSharkMesh, applySharkSkin, createSharkMeatMesh } from './models';
-import { PlayerState } from './context';
+import { SharkData, PlacedStructure, ItemId } from '../../types/game';
+import { soundManager } from '../../audio/soundManager';
+import { BLOCK_SIZE, createSharkMesh, applySharkSkin, createSharkMeatMesh } from '../visuals/models';
+import { PlayerState } from '../context';
 
 /**
  * Shark AI & Combat System (Bruce the Great White).
@@ -435,4 +436,26 @@ export class SharkSystem {
       }
     }
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createSharkSystem(w: WorldView): SharkSystem {
+  return new SharkSystem({
+    scene: w.scene,
+    camera: w.camera,
+    player: w.player().player,
+    structures: w.build().structures,
+    raftGroup: w.build().raftGroup,
+    callbacks: {
+      onToast: w.toast,
+      onSharkAlert: (alerting) => w.ui.onSharkAlert(alerting),
+      onSharkDataChange: (shark) => w.ui.onSharkDataChange?.(shark),
+      onStatsChange: (stats) => w.ui.onStatsChange(stats),
+    },
+    addItemToInventory: (itemId, count) => w.inventory().addItemToInventory(itemId, count),
+    saveWorld: (notify) => w.saveWorld(notify),
+    getHookState: () => w.hook().hookState,
+    getHookPos: () => w.hook().hookPos,
+  });
 }

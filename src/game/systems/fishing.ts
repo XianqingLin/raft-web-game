@@ -1,5 +1,6 @@
+import type { WorldView } from '../worldView';
 import * as THREE from 'three';
-import { soundManager } from '../audio/soundManager';
+import { soundManager } from '../../audio/soundManager';
 
 export type FishingState = 'IDLE' | 'CASTING' | 'WAITING' | 'APPROACHING' | 'BITING' | 'REELING';
 
@@ -505,4 +506,17 @@ export class FishingSystem {
     this.scene.remove(this.splashGroup);
     if (this.leapingFish) this.scene.remove(this.leapingFish);
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createFishingSystem(w: WorldView): FishingSystem {
+  return new FishingSystem({
+    scene: w.scene,
+    camera: w.camera,
+    getPlayerPos: () => w.player().player.pos,
+    addItemToInventory: (itemId, count) => w.inventory().addItemToInventory(itemId, count),
+    consumeRodDurability: () => w.inventory().consumeRodDurability(),
+    onToast: w.toast,
+  });
 }

@@ -8,6 +8,7 @@
  * onHotbarChange/onInventoryChange/onStatsChange（后续迁事件总线时移除）。
  */
 
+import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import {
   DebrisObject,
@@ -17,14 +18,14 @@ import {
   MerchantItem,
   PlacedStructure,
   ResourceId,
-} from '../types/game';
-import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
-import { soundManager } from '../audio/soundManager';
-import { createDebrisMesh } from './models';
+} from '../../types/game';
+import { ITEM_DEFINITIONS } from '../../data/itemsAndRecipes';
+import { soundManager } from '../../audio/soundManager';
+import { createDebrisMesh } from '../visuals/models';
 import { InventorySystem } from './inventory';
 import { BuildSystem } from './build';
 import { PlayerSystem } from './player';
-import { events } from '../core/events';
+import { events } from '../../core/events';
 
 export interface StationSystemContext {
   scene: THREE.Scene;
@@ -520,4 +521,26 @@ export class StationSystem {
       }
     });
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createStationSystem(w: WorldView): StationSystem {
+  return new StationSystem({
+    scene: w.scene,
+    build: () => w.build(),
+    player: () => w.player(),
+    inventory: w.inventory(),
+    onHotbarChange: () => {
+      const inv = w.inventory();
+      w.ui.onHotbarChange([...inv.hotbar], inv.activeHotbarIdx);
+    },
+    onInventoryChange: () => w.ui.onInventoryChange([...w.inventory().inventory]),
+    onStatsChange: () => w.ui.onStatsChange({ ...w.player().player.stats }),
+    onOpenChest: (chest) => w.ui.onOpenChest(chest),
+    onOpenCompactor: () => w.ui.onOpenCompactor?.(),
+    getIsNight: () => w.time().isNight,
+    advanceToMorning: () => w.time().advanceToMorning(),
+    getDebrisList: () => w.state.debris,
+  });
 }

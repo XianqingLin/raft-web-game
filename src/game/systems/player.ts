@@ -8,11 +8,12 @@
  * ctx.onStatsChange（后续迁 zustand 时移除）。
  */
 
+import type { WorldView } from '../worldView';
 import * as THREE from 'three';
-import { PlayerStats } from '../types/game';
-import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from './models';
-import { soundManager } from '../audio/soundManager';
-import { events } from '../core/events';
+import { PlayerStats } from '../../types/game';
+import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/models';
+import { soundManager } from '../../audio/soundManager';
+import { events } from '../../core/events';
 import { BuildSystem } from './build';
 
 /** 鼠标灵敏度（弧度/像素） */
@@ -267,4 +268,17 @@ export class PlayerSystem {
     // 相机位置每帧与玩家坐标同步（update 末尾 copy），因此只读玩家状态即可
     return this.player.inWater || this.player.pos.y < 3.0;
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createPlayerSystem(w: WorldView): PlayerSystem {
+  return new PlayerSystem({
+    camera: w.camera,
+    keys: w.keys,
+    getPointerLocked: w.isPointerLocked,
+    build: () => w.build(),
+    getIslandHeight: (x, z) => w.islands().getHeightAt(x, z),
+    onStatsChange: (stats) => w.ui.onStatsChange(stats),
+  });
 }

@@ -1,9 +1,10 @@
+import type { WorldView } from '../worldView';
 import * as THREE from 'three';
-import { ItemId, PlacedStructure } from '../types/game';
+import { ItemId, PlacedStructure } from '../../types/game';
 import { BuildSystem } from './build';
-import { PlayerState } from './context';
+import { PlayerState } from '../context';
 import { FishingSystem } from './fishing';
-import { IslandManager, IslandResource } from './islands';
+import { IslandManager, IslandResource } from '../environment/islands';
 import { SharkSystem } from './shark';
 import { StationSystem } from './stations';
 
@@ -185,4 +186,24 @@ export class InteractionSystem {
     this.aimedInteractable = foundInteract;
     this.ctx.onInteractPrompt(promptText);
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createInteractionSystem(w: WorldView): InteractionSystem {
+  return new InteractionSystem({
+    camera: w.camera,
+    player: w.player().player,
+    build: w.build(),
+    stations: w.stations(),
+    fishing: w.fishing(),
+    shark: w.shark(),
+    islands: w.islands(),
+    merchantRaftGroup: w.merchantRaft(),
+    getActiveItemId: () => {
+      const inv = w.inventory();
+      return inv.hotbar[inv.activeHotbarIdx]?.itemId ?? null;
+    },
+    onInteractPrompt: (prompt) => w.ui.onInteractPrompt(prompt),
+  });
 }

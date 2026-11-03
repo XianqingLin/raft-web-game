@@ -1,7 +1,8 @@
+import type { WorldView } from '../worldView';
 import * as THREE from 'three';
-import { DebrisObject, ResourceId } from '../types/game';
-import { createDebrisMesh } from './models';
-import type { WorldState } from './gameWorld';
+import { DebrisObject, ResourceId } from '../../types/game';
+import { createDebrisMesh } from '../visuals/models';
+import type { WorldState } from '../gameWorld';
 
 /**
  * DebrisSystem —— 漂浮物系统（拆分自 engine.ts，split step 8）。
@@ -105,4 +106,10 @@ export class DebrisSystem {
     this.ctx.world.debris.forEach((d) => this.ctx.scene.remove(d.mesh));
     this.ctx.world.debris = [];
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createDebrisSystem(w: WorldView): DebrisSystem {
+  return new DebrisSystem({ scene: w.scene, world: w.state });
 }

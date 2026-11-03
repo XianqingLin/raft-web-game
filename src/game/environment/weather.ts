@@ -1,6 +1,8 @@
+import type { WorldView } from '../worldView';
+import type { OceanEnvironment } from './ocean';
 import * as THREE from 'three';
-import { WeatherType } from '../types/game';
-import { soundManager } from '../audio/soundManager';
+import { WeatherType } from '../../types/game';
+import { soundManager } from '../../audio/soundManager';
 
 export interface WeatherSystem {
   currentWeather: WeatherType;
@@ -247,4 +249,25 @@ export function createWeatherSystem(
     getOceanRoughness: () => currentOceanRoughness,
     dispose,
   };
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createWeather(w: WorldView, ocean: OceanEnvironment): WeatherSystem {
+  return createWeatherSystem(
+    w.scene,
+    ocean.sunLight,
+    ocean.ambientLight,
+    ocean.hemiLight,
+    (newWeather) => {
+      w.ui.onWeatherChange?.(newWeather);
+      if (newWeather === 'LIGHT_FOG') {
+        w.toast('🌫️ A thick sea mist rolls across the ocean waters...', '#94a3b8');
+      } else if (newWeather === 'HEAVY_RAIN') {
+        w.toast('🌧️ A tropical storm strikes! Rough waves and rain!', '#38bdf8');
+      } else {
+        w.toast('☀️ The skies clear over the open sea.', '#fde047');
+      }
+    }
+  );
 }

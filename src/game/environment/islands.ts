@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { ResourceId } from '../types/game';
-import { soundManager } from '../audio/soundManager';
+import { ResourceId } from '../../types/game';
+import { soundManager } from '../../audio/soundManager';
 
 export interface IslandResource {
   id: string;

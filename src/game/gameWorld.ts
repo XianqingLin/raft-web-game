@@ -8,23 +8,27 @@ import {
   SharkData,
   WeatherType,
   WorldSaveData,
+  ToolActionKind,
 } from '../types/game';
-import { createMerchantRaftMesh } from './models';
-import { createOceanEnvironment, OceanEnvironment, OCEAN_DRIFT_BASE } from './ocean';
-import { createWeatherSystem, WeatherSystem } from './weather';
-import { createIslandManager, IslandManager } from './islands';
-import { FishingSystem } from './fishing';
-import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from './storage';
-import { SharkSystem } from './shark';
-import { InventorySystem } from './inventory';
-import { BuildSystem } from './build';
-import { PlayerSystem } from './player';
-import { HookSystem } from './hook';
-import { StationSystem } from './stations';
-import { TimeSystem } from './time';
-import { DebrisSystem } from './debris';
-import { InteractionSystem } from './interact';
+import { createMerchantRaftMesh } from './visuals/models';
+import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
+import { WorldDefinition, DEFAULT_WORLD } from '../data/worldDefinition';
+import { createOceanEnvironment, OceanEnvironment, OCEAN_DRIFT_BASE } from './environment/ocean';
+import { WeatherSystem, createWeather } from './environment/weather';
+import { createIslandManager, IslandManager } from './environment/islands';
+import { FishingSystem, createFishingSystem } from './systems/fishing';
+import { SaveSystem, createSaveSystem } from './systems/save';
+import { SharkSystem, createSharkSystem } from './systems/shark';
+import { InventorySystem, createInventorySystem } from './systems/inventory';
+import { BuildSystem, createBuildSystem } from './systems/build';
+import { PlayerSystem, createPlayerSystem } from './systems/player';
+import { HookSystem, createHookSystem } from './systems/hook';
+import { StationSystem, createStationSystem } from './systems/stations';
+import { TimeSystem, createTimeSystem } from './systems/time';
+import { DebrisSystem, createDebrisSystem } from './systems/debris';
+import { InteractionSystem, createInteractionSystem } from './systems/interact';
 import { GameEngine, EngineDelegate } from './engine/gameEngine';
+import { WorldView } from './worldView';
 import { events } from '../core/events';
 
 export interface GameCallbacks {
@@ -71,23 +75,25 @@ export interface WorldState {
   nextDebrisId: number;
 }
 
-function createWorldState(): WorldState {
+function createWorldState(start: WorldDefinition['start']): WorldState {
   return {
-    dayTime: 0.25,
-    dayCount: 1,
+    dayTime: start.dayTime,
+    dayCount: start.dayCount,
     debris: [],
     nextDebrisId: 1,
   };
 }
 
 /**
- * GameWorld —— 玩法世界：组合根 + 主循环编排 + 输入语义分发 + 存档。
+ * GameWorld —— 玩法世界：组合根 + 主循环编排 + 输入语义分发。
  *
  * 与 GameEngine（gameEngine.ts）的分层：
  * - GameEngine 是基础设施（renderer/scene/循环/原始输入），不认识玩法；
  * - GameWorld 构造并接线所有玩法系统，实现 EngineDelegate 消费引擎：
- *   每帧 tick 顺序、按键到系统动作的映射、存档编排都在这里。
+ *   每帧 tick 顺序、按键到系统动作的映射都在这里。
  *
+ * 场景内容（商人筏位置、开局漂浮物等）来自 WorldDefinition（data 层），
+ * 本类不硬编码；存档持久化归 SaveSystem。
  * 玩法规则与状态归各系统；跨系统共享的可变数据在 WorldState（this.state）；
  * 系统间通知走事件总线 core/events.ts。
  */
@@ -96,7 +102,7 @@ export class GameWorld implements EngineDelegate {
   public engine: GameEngine;
 
   /** 跨系统共享的可变世界状态（时间、漂浮物） */
-  public state: WorldState = createWorldState();
+  public state: WorldState;
 
   // 玩法系统
   public playerSystem: PlayerSystem;
@@ -111,6 +117,7 @@ export class GameWorld implements EngineDelegate {
   public weatherSystem: WeatherSystem;
   public islandManager: IslandManager;
   public fishingSystem: FishingSystem;
+  public saveSystem: SaveSystem;
 
   // Inventory arrays live in InventorySystem; getters so existing read/mutate
   // sites keep working.
@@ -127,12 +134,18 @@ export class GameWorld implements EngineDelegate {
 
   private oceanEnv: OceanEnvironment;
   private callbacks: WorldCallbacks;
-  private autoSaveTimer: any = null;
+  /** 本世界的场景内容定义（默认 DEFAULT_WORLD，可传入变体） */
+  private definition: WorldDefinition;
+  /** 工具主动作 → 系统调用的执行表（物品→动作的映射在 data/itemsAndRecipes.ts） */
+  private toolActions: Record<ToolActionKind, () => void>;
 
   constructor(
     container: HTMLElement,
-    callbacks: GameCallbacks
+    callbacks: GameCallbacks,
+    definition: WorldDefinition = DEFAULT_WORLD
   ) {
+    this.definition = definition;
+
     // Toast 统一走事件总线（UI 在 state/uiStore.ts 订阅）。旧调用点继续用
     // this.callbacks.onToast，逐步改为 events.emit('toast', ...)。
     this.callbacks = {
@@ -140,188 +153,116 @@ export class GameWorld implements EngineDelegate {
       onToast: (text, color) => events.emit('toast', { text, color }),
     };
 
+    // World state seeded from the definition (time, floating debris, ids)
+    this.state = createWorldState(definition.start);
+
     // Engine first: scene/camera/renderer/input bootstrap
     this.engine = new GameEngine(container);
     this.engine.delegate = this;
 
-    const { scene, camera } = this.engine;
+    const { scene } = this.engine;
 
-    // Input System（keys 状态表先就位，PlayerSystem 构造需要引用它）
-    // Player System (owns player state & physics; created before systems that
-    // reference the shared player object; build/island hooked up lazily)
-    this.playerSystem = new PlayerSystem({
-      camera,
-      keys: this.engine.input.keys,
-      getPointerLocked: () => this.isPointerLocked,
-      build: () => this.build,
-      getIslandHeight: (x, z) => this.islandManager.getHeightAt(x, z),
-      onStatsChange: (stats) => this.callbacks.onStatsChange(stats),
-    });
-
-    // Inventory & Crafting System
-    this.inventorySystem = new InventorySystem({
-      callbacks: {
-        onToast: (text, color) => this.callbacks.onToast(text, color),
-        onHotbarChange: (hotbar, activeIdx) => this.callbacks.onHotbarChange(hotbar, activeIdx),
-        onInventoryChange: (inv) => this.callbacks.onInventoryChange(inv),
-        onStatsChange: (stats) => this.callbacks.onStatsChange(stats),
-      },
-      player: this.playerSystem.player,
-      onReadyToBuild: (building) => {
-        this.build.enterBuildMode(building);
-      },
-      onToolSlotChanged: (itemId) => {
-        this.hookSystem.updateEquippedTool(this.hotbar[this.activeHotbarIdx]?.itemId ?? null);
-        if (itemId === 'hammer') {
-          this.build.enterBuildMode();
-        } else if (this.build.isBuildMode) {
-          this.build.exitBuildMode();
-        }
-        if (itemId !== 'fishing_rod' && this.fishingSystem && this.fishingSystem.state !== 'IDLE') {
-          this.fishingSystem.reset();
-        }
-      },
-    });
-
-    // Ocean & Lighting
-    this.oceanEnv = createOceanEnvironment(scene);
-
-    // Dynamic Weather System (Clear, Light Fog, Heavy Rain)
-    this.weatherSystem = createWeatherSystem(
+    // World view: the one handle factories use to pull dependencies. System
+    // getters are lazy — availability is guaranteed by factory call order.
+    const w: WorldView = {
       scene,
-      this.oceanEnv.sunLight,
-      this.oceanEnv.ambientLight,
-      this.oceanEnv.hemiLight,
-      (newWeather) => {
-        this.callbacks.onWeatherChange?.(newWeather);
-        if (newWeather === 'LIGHT_FOG') {
-          this.callbacks.onToast('🌫️ A thick sea mist rolls across the ocean waters...', '#94a3b8');
-        } else if (newWeather === 'HEAVY_RAIN') {
-          this.callbacks.onToast('🌧️ A tropical storm strikes! Rough waves and rain!', '#38bdf8');
-        } else {
-          this.callbacks.onToast('☀️ The skies clear over the open sea.', '#fde047');
-        }
-      }
-    );
+      camera: this.engine.camera,
+      keys: this.engine.input.keys,
+      isPointerLocked: () => this.isPointerLocked,
+      state: this.state,
+      definition: this.definition,
+      player: () => this.playerSystem,
+      inventory: () => this.inventorySystem,
+      build: () => this.build,
+      hook: () => this.hookSystem,
+      fishing: () => this.fishingSystem,
+      stations: () => this.stations,
+      shark: () => this.sharkSystem,
+      time: () => this.time,
+      islands: () => this.islandManager,
+      ocean: () => this.oceanEnv,
+      merchantRaft: () => this.merchantRaftGroup!,
+      saveWorld: (notify = false) => {
+        this.saveWorld(notify);
+      },
+      toast: (text, color) => this.callbacks.onToast(text, color),
+      ui: this.callbacks,
+    };
 
-    // Explorable Tropical Islands with flora, terrain, palm trees, and harvestables
+    // Systems: one create per system — wiring lives in each system's factory.
+    // Order matters: a factory may only call getters of already-created systems.
+    this.playerSystem = createPlayerSystem(w);
+    this.inventorySystem = createInventorySystem(w);
+    this.oceanEnv = createOceanEnvironment(scene);
+    this.weatherSystem = createWeather(w, this.oceanEnv);
     this.islandManager = createIslandManager(scene);
 
     // Drifting Merchant Outpost Barge (Scavenger Economy)
     this.merchantRaftGroup = createMerchantRaftMesh();
-    this.merchantRaftGroup.position.set(-26, 0, -22);
+    this.merchantRaftGroup.position.set(...definition.merchant.position);
     scene.add(this.merchantRaftGroup);
 
-    // Minecraft-Style Fishing System (rod tip/look dir computed from camera
-    // internally; catch loot & rod durability routed to inventory via callbacks)
-    this.fishingSystem = new FishingSystem({
-      scene,
-      camera,
-      getPlayerPos: () => this.playerSystem.player.pos,
-      addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
-      consumeRodDurability: () => this.inventorySystem.consumeRodDurability(),
-      onToast: (text, color) => this.callbacks.onToast(text, color),
-    });
+    // Minecraft-Style Fishing System
+    this.fishingSystem = createFishingSystem(w);
 
-    // Hook & FPS Tool System (projectile state machine, rope, held tool models)
-    this.hookSystem = new HookSystem({ scene, camera });
+    // Hook & FPS Tool System
+    this.hookSystem = createHookSystem(w);
 
-    // Raft Build System: owns structures map, placement/demolition, build mode,
-    // hologram, support/collision queries and structure serialization.
-    this.build = new BuildSystem({
-      scene,
-      camera,
-      player: this.playerSystem.player,
-      inventory: this.inventorySystem,
-      onSave: () => this.saveWorld(false),
-      getIslandHeight: (x, z) => this.islandManager.getHeightAt(x, z),
-    });
+    // Raft Build System
+    this.build = createBuildSystem(w);
 
-    // Time System (owns day duration & morning policy; values live in WorldState)
-    this.time = new TimeSystem(this.state, {
-      onTimeChange: (day, timeStr, progress) => this.callbacks.onTimeChange(day, timeStr, progress),
-    });
+    // Time System
+    this.time = createTimeSystem(w);
 
-    // Debris System (spawn/drift/despawn; list lives in WorldState.debris)
-    this.debrisSystem = new DebrisSystem({ scene, world: this.state });
+    // Debris System
+    this.debrisSystem = createDebrisSystem(w);
 
-    // Station System: functional raft stations (grill/purifier/crop/net/chest/bed/compactor),
-    // their per-frame simulation, and the scavenger economy (compactor forge + merchant trades).
-    this.stations = new StationSystem({
-      scene,
-      build: () => this.build,
-      player: () => this.playerSystem,
-      inventory: this.inventorySystem,
-      onHotbarChange: () => this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx),
-      onInventoryChange: () => this.callbacks.onInventoryChange([...this.inventory]),
-      onStatsChange: () => this.callbacks.onStatsChange({ ...this.playerSystem.player.stats }),
-      onOpenChest: (chest) => this.callbacks.onOpenChest(chest),
-      onOpenCompactor: () => this.callbacks.onOpenCompactor?.(),
-      getIsNight: () => this.time.isNight,
-      advanceToMorning: () => this.time.advanceToMorning(),
-      getDebrisList: () => this.state.debris,
-    });
+    // Station System
+    this.stations = createStationSystem(w);
 
     // Shark AI & Combat System (Bruce)
-    this.sharkSystem = new SharkSystem({
-      scene,
-      camera,
-      player: this.playerSystem.player,
-      structures: this.build.structures,
-      raftGroup: this.build.raftGroup,
-      callbacks: {
-        onToast: (text, color) => this.callbacks.onToast(text, color),
-        onSharkAlert: (alerting) => this.callbacks.onSharkAlert(alerting),
-        onSharkDataChange: (shark) => this.callbacks.onSharkDataChange?.(shark),
-        onStatsChange: (stats) => this.callbacks.onStatsChange(stats),
-      },
-      addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
-      saveWorld: (notify) => this.saveWorld(notify),
-      getHookState: () => this.hookSystem.hookState,
-      getHookPos: () => this.hookSystem.hookPos,
-    });
+    this.sharkSystem = createSharkSystem(w);
 
-    // Interaction System (crosshair raycasts & prompts; created last: reads
-    // build/stations/shark/fishing)
-    this.interaction = new InteractionSystem({
-      camera,
-      player: this.playerSystem.player,
-      build: this.build,
-      stations: this.stations,
-      fishing: this.fishingSystem,
-      shark: this.sharkSystem,
-      islands: this.islandManager,
-      merchantRaftGroup: this.merchantRaftGroup,
-      getActiveItemId: () => this.hotbar[this.activeHotbarIdx]?.itemId ?? null,
-      onInteractPrompt: (prompt) => this.callbacks.onInteractPrompt(prompt),
-    });
+    // Interaction System (crosshair raycasts & prompts; reads many systems)
+    this.interaction = createInteractionSystem(w);
+
+    // Tool action dispatch: which item maps to which action lives in item
+    // definitions (data layer); the world only wires actions to systems here.
+    this.toolActions = {
+      throw_hook: () => {
+        this.hookSystem.chargeStart();
+        this.hookSystem.reelClick();
+      },
+      cast_fishing_rod: () => this.fishingSystem.onPrimaryAction(),
+      spear_thrust: () => this.sharkSystem.spearThrust(this.hookSystem.toolModel),
+      scoop_saltwater: () => {
+        // Water-source condition in PlayerSystem, consumption in inventory
+        if (this.playerSystem.canScoopSaltwater()) {
+          this.inventorySystem.fillCupWithSaltwater();
+        }
+      },
+    };
+
+    // Save System (starts auto-save cadence & beforeunload listener itself)
+    this.saveSystem = createSaveSystem(w);
 
     // Load Saved World or Create Starter Raft
-    const savedWorld = loadWorldLocally();
-    if (savedWorld && Array.isArray(savedWorld.structures) && savedWorld.structures.length > 0) {
-      this.loadWorld(savedWorld);
+    const savedWorld = this.saveSystem.loadLatest();
+    if (savedWorld) {
+      this.saveSystem.load(savedWorld);
       this.callbacks.onToast(`📂 World restored from previous save! (Day ${savedWorld.dayCount || 1})`, '#38bdf8');
     } else {
       this.build.createInitialRaft();
     }
 
-    // Auto-save every 12 seconds
-    this.autoSaveTimer = setInterval(() => {
-      this.saveWorld(false);
-    }, 12000);
-
     // Populate Initial Floating Debris
-    for (let i = 0; i < 6; i++) {
-      this.debrisSystem.spawn(-55 + Math.random() * 85);
+    const [debrisMinX, debrisMaxX] = definition.initialDebris.xRange;
+    for (let i = 0; i < definition.initialDebris.count; i++) {
+      this.debrisSystem.spawn(debrisMinX + Math.random() * (debrisMaxX - debrisMinX));
     }
 
     // Update active equipped tool
     this.hookSystem.updateEquippedTool(this.hotbar[this.activeHotbarIdx]?.itemId ?? null);
-
-    // Window lifecycle listener (gameplay data; engine handles resize)
-    window.addEventListener('beforeunload', () => {
-      this.saveWorld(false);
-    });
 
     // Notify initial state to React
     this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
@@ -418,8 +359,6 @@ export class GameWorld implements EngineDelegate {
 
   // Left Click Down
   private handleLeftClickDown() {
-    const activeSlot = this.hotbar[this.activeHotbarIdx];
-
     // 1. Build Mode: Place piece or Demolish
     if (this.build.isBuildMode) {
       this.build.tryPlace();
@@ -453,23 +392,23 @@ export class GameWorld implements EngineDelegate {
       if (handled) return;
     }
 
-    // 5. Equipped Tool Actions (hook/fishing rod/spear need cross-system context)
-    if (activeSlot?.itemId === 'hook') {
-      this.hookSystem.chargeStart();
-      this.hookSystem.reelClick();
-    } else if (activeSlot?.itemId === 'fishing_rod') {
-      // Minecraft-style Fishing Rod: cast/reel/loot/durability all inside FishingSystem
-      this.fishingSystem.onPrimaryAction();
-    } else if (activeSlot?.itemId === 'spear') {
-      this.sharkSystem.spearThrust(this.hookSystem.toolModel);
-    } else if (activeSlot?.itemId === 'cup_empty' && this.playerSystem.canScoopSaltwater()) {
-      // Scoop saltwater (water-source condition in PlayerSystem, consumption in inventory)
-      this.inventorySystem.fillCupWithSaltwater();
-    } else {
-      // 6. Food & drink consumption — single unified path (also used by HUD
-      // auto-consume; previously there was a duplicated eat/drink block)
-      this.inventorySystem.consumeSlot(false, this.activeHotbarIdx);
+    // 5. Equipped tool primary action — the item→action mapping lives in item
+    // definitions (data layer); add a new tool by tagging primaryAction there.
+    const action = this.getActivePrimaryAction();
+    if (action) {
+      this.toolActions[action]();
+      return;
     }
+
+    // 6. Food & drink consumption — single unified path (also used by HUD
+    // auto-consume; previously there was a duplicated eat/drink block)
+    this.inventorySystem.consumeSlot(false, this.activeHotbarIdx);
+  }
+
+  /** 当前手持物品的主动作（来自物品定义；无主动作的工具/资源返回 undefined） */
+  private getActivePrimaryAction(): ToolActionKind | undefined {
+    const id = this.hotbar[this.activeHotbarIdx]?.itemId;
+    return id ? ITEM_DEFINITIONS[id]?.primaryAction : undefined;
   }
 
   // ==================== EngineDelegate: Frame ====================
@@ -504,7 +443,7 @@ export class GameWorld implements EngineDelegate {
     this.hookSystem.update(dt, elapsed, {
       effectiveDrift,
       playerPos: this.playerSystem.player.pos,
-      activeToolId: this.hotbar[this.activeHotbarIdx]?.itemId ?? null,
+      activeToolAction: this.getActivePrimaryAction() ?? null,
       debrisList: this.state.debris,
       addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
     });
@@ -535,83 +474,26 @@ export class GameWorld implements EngineDelegate {
     this.build.updateBuildHologram();
   }
 
-  // ==================== Save / Load ====================
+  // ==================== Save / Load（持久化在 SaveSystem，这里只留世界级决策） ====================
 
   public saveWorld(notify: boolean = true): WorldSaveData {
-    const serializedStructures = this.build.serializeStructures();
-
-    const save: WorldSaveData = {
-      version: 1,
-      worldName: 'Oceanic Raft',
-      timestamp: Date.now(),
-      dayCount: this.state.dayCount,
-      dayTime: this.state.dayTime,
-      sharkDefeatedOnce: this.sharkSystem.sharkDefeatedOnce,
-      structures: serializedStructures,
-      player: {
-        stats: { ...this.playerSystem.player.stats },
-        hotbar: [...this.hotbar],
-        inventory: [...this.inventory],
-        pos: { x: this.playerSystem.player.pos.x, y: this.playerSystem.player.pos.y, z: this.playerSystem.player.pos.z },
-        yaw: this.playerSystem.player.yaw,
-        pitch: this.playerSystem.player.pitch,
-      },
-    };
-
-    saveWorldLocally(save);
-
-    if (notify) {
-      this.callbacks.onToast('💾 World saved successfully!', '#10b981');
-    }
-    return save;
-  }
-
-  public loadWorld(save: WorldSaveData): boolean {
-    if (!save || !Array.isArray(save.structures)) return false;
-
-    // Clear existing structures and reconstruct all preserving exact IDs
-    this.build.loadFrom(save.structures);
-
-    if (save.dayCount) this.state.dayCount = save.dayCount;
-    if (save.dayTime !== undefined) this.state.dayTime = save.dayTime;
-
-    if (save.sharkDefeatedOnce !== undefined) {
-      this.sharkSystem.setDefeated(save.sharkDefeatedOnce);
-    }
-
-    if (save.player) {
-      if (save.player.hotbar && Array.isArray(save.player.hotbar)) this.inventorySystem.hotbar = save.player.hotbar;
-      if (save.player.inventory && Array.isArray(save.player.inventory)) this.inventorySystem.inventory = save.player.inventory;
-      if (save.player.stats) this.playerSystem.player.stats = { ...this.playerSystem.player.stats, ...save.player.stats };
-      if (save.player.pos) {
-        this.playerSystem.player.pos.set(save.player.pos.x, save.player.pos.y, save.player.pos.z);
-      }
-      if (save.player.yaw !== undefined) this.playerSystem.player.yaw = save.player.yaw;
-      if (save.player.pitch !== undefined) this.playerSystem.player.pitch = save.player.pitch;
-
-      this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
-      this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-      this.callbacks.onInventoryChange([...this.inventory]);
-    }
-
-    return true;
+    return this.saveSystem.save(notify);
   }
 
   public resetWorld() {
-    clearWorldLocally();
+    this.saveSystem.clear();
     this.build.clearAll();
     this.sharkSystem.reset();
-    this.state.dayCount = 1;
-    this.state.dayTime = 0.25;
+    this.state.dayCount = this.definition.start.dayCount;
+    this.state.dayTime = this.definition.start.dayTime;
     this.build.createInitialRaft();
     this.playerSystem.respawnPlayer();
     this.callbacks.onToast('🔄 World reset to initial 2x2 starter raft!', '#38bdf8');
   }
 
   public dispose() {
-    this.saveWorld(false);
+    this.saveSystem.dispose();
     this.engine.delegate = null;
-    if (this.autoSaveTimer) clearInterval(this.autoSaveTimer);
     this.build.dispose();
     this.debrisSystem.dispose();
     this.fishingSystem.dispose();

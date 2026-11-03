@@ -1,4 +1,5 @@
-import type { WorldState } from './gameWorld';
+import type { WorldView } from '../worldView';
+import type { WorldState } from '../gameWorld';
 
 /**
  * TimeSystem —— 昼夜时间系统（拆分自 engine.ts，split step 7）。
@@ -52,4 +53,12 @@ export class TimeSystem {
     this.world.dayCount++;
     return this.world.dayCount;
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createTimeSystem(w: WorldView): TimeSystem {
+  return new TimeSystem(w.state, {
+    onTimeChange: (day, timeStr, progress) => w.ui.onTimeChange(day, timeStr, progress),
+  });
 }

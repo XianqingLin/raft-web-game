@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BuildingType, ResourceId } from '../types/game';
+import { BuildingType, ResourceId } from '../../types/game';
 
 // Standard grid size
 export const BLOCK_SIZE = 2.0;

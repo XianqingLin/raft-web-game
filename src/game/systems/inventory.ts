@@ -1,7 +1,8 @@
-import { HotbarSlot, InventorySlot, ItemId, ResourceId, BuildingType } from '../types/game';
-import { ITEM_DEFINITIONS, CRAFTING_RECIPES } from '../data/itemsAndRecipes';
-import { soundManager } from '../audio/soundManager';
-import { PlayerState } from './context';
+import type { WorldView } from '../worldView';
+import { HotbarSlot, InventorySlot, ItemId, ResourceId, BuildingType } from '../../types/game';
+import { ITEM_DEFINITIONS, CRAFTING_RECIPES } from '../../data/itemsAndRecipes';
+import { soundManager } from '../../audio/soundManager';
+import { PlayerState } from '../context';
 
 /**
  * Inventory & Crafting System.
@@ -312,4 +313,32 @@ export class InventorySystem {
     }
     this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createInventorySystem(w: WorldView): InventorySystem {
+  return new InventorySystem({
+    callbacks: {
+      onToast: w.toast,
+      onHotbarChange: (hotbar, activeIdx) => w.ui.onHotbarChange(hotbar, activeIdx),
+      onInventoryChange: (inv) => w.ui.onInventoryChange(inv),
+      onStatsChange: (stats) => w.ui.onStatsChange(stats),
+    },
+    player: w.player().player,
+    onReadyToBuild: (building) => w.build().enterBuildMode(building),
+    onToolSlotChanged: (itemId) => {
+      const inv = w.inventory();
+      w.hook().updateEquippedTool(inv.hotbar[inv.activeHotbarIdx]?.itemId ?? null);
+      if (itemId === 'hammer') {
+        w.build().enterBuildMode();
+      } else if (w.build().isBuildMode) {
+        w.build().exitBuildMode();
+      }
+      const fishing = w.fishing();
+      if (itemId !== 'fishing_rod' && fishing && fishing.state !== 'IDLE') {
+        fishing.reset();
+      }
+    },
+  });
 }

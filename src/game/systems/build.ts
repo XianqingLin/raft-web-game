@@ -9,15 +9,16 @@
  * 不持有任何 UI 回调。
  */
 
+import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import {
   BuildingType,
   PlacedStructure,
   ResourceId,
   SerializedStructure,
-} from '../types/game';
-import { BUILDING_DEFINITIONS } from '../data/itemsAndRecipes';
-import { soundManager } from '../audio/soundManager';
+} from '../../types/game';
+import { BUILDING_DEFINITIONS } from '../../data/itemsAndRecipes';
+import { soundManager } from '../../audio/soundManager';
 import {
   BLOCK_SIZE,
   BLOCK_HEIGHT,
@@ -37,8 +38,8 @@ import {
   createSailMesh,
   createBedMesh,
   createDebrisCompactorMesh,
-} from './models';
-import { events } from '../core/events';
+} from '../visuals/models';
+import { events } from '../../core/events';
 import { InventorySystem } from './inventory';
 
 export interface GhostSnapCoord {
@@ -1020,4 +1021,17 @@ export class BuildSystem {
   public dispose() {
     this.destroyGhostMesh();
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createBuildSystem(w: WorldView): BuildSystem {
+  return new BuildSystem({
+    scene: w.scene,
+    camera: w.camera,
+    player: w.player().player,
+    inventory: w.inventory(),
+    onSave: () => w.saveWorld(),
+    getIslandHeight: (x, z) => w.islands().getHeightAt(x, z),
+  });
 }

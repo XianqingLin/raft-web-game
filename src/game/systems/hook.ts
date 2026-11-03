@@ -8,12 +8,13 @@
  * 通信约定：战利品提示走事件总线 core/events.ts。
  */
 
+import type { WorldView } from '../worldView';
 import * as THREE from 'three';
-import { DebrisObject, ItemId, ResourceId } from '../types/game';
-import { ITEM_DEFINITIONS } from '../data/itemsAndRecipes';
-import { soundManager } from '../audio/soundManager';
-import { createGrapplingHookMesh, createFPSTool } from './models';
-import { events } from '../core/events';
+import { DebrisObject, ItemId, ResourceId, ToolActionKind } from '../../types/game';
+import { ITEM_DEFINITIONS } from '../../data/itemsAndRecipes';
+import { soundManager } from '../../audio/soundManager';
+import { createGrapplingHookMesh, createFPSTool } from '../visuals/models';
+import { events } from '../../core/events';
 
 export type HookState = 'IDLE' | 'CHARGING' | 'THROWN' | 'FLOATING' | 'RETRACTING';
 
@@ -26,8 +27,8 @@ export interface HookSystemContext {
 export interface HookUpdateContext {
   effectiveDrift: number;
   playerPos: THREE.Vector3;
-  /** 当前手持物品（决定手持模型是否显示） */
-  activeToolId: ItemId | null;
+  /** 当前手持物品的主动作（throw_hook 时显示蓄力/待机动画，物品映射在 data 层） */
+  activeToolAction: ToolActionKind | null;
   /** engine 的漂浮物列表（钩取时原地标记 caught 并移除） */
   debrisList: DebrisObject[];
   addItemToInventory: (id: ResourceId, count: number) => void;
@@ -131,7 +132,7 @@ export class HookSystem {
     const rodTip = new THREE.Vector3(0.35, -0.22, -0.75).applyMatrix4(this.ctx.camera.matrixWorld);
 
     // Held FPS Tool dynamics: Hook charging windup, Idle breathing, or throw hide
-    if (u.activeToolId === 'hook' && this.currentToolModel) {
+    if (u.activeToolAction === 'throw_hook' && this.currentToolModel) {
       if (this.hookState === 'CHARGING') {
         // Wind-up: pull back and elevate with tension
         this.currentToolModel.position.set(
@@ -206,7 +207,7 @@ export class HookSystem {
             this.hookCaught = [];
           }
           this.hookState = 'IDLE';
-          if (u.activeToolId === 'hook' && this.currentToolModel) {
+          if (u.activeToolAction === 'throw_hook' && this.currentToolModel) {
             this.currentToolModel.visible = true;
           }
         } else {
@@ -250,4 +251,10 @@ export class HookSystem {
       this.ropeLine.geometry.attributes.position.needsUpdate = true;
     }
   }
+}
+
+// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+
+export function createHookSystem(w: WorldView): HookSystem {
+  return new HookSystem({ scene: w.scene, camera: w.camera });
 }
