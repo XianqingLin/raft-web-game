@@ -21,8 +21,6 @@ import {
   BLOCK_HEIGHT,
   WALL_HEIGHT,
   createDebrisMesh,
-  createFPSTool,
-  createGrapplingHookMesh,
   createMerchantRaftMesh,
 } from './models';
 import { createOceanEnvironment, OceanEnvironment } from './ocean';
@@ -35,6 +33,7 @@ import { SharkSystem } from './shark';
 import { InventorySystem } from './inventory';
 import { BuildSystem } from './build';
 import { PlayerSystem } from './player';
+import { HookSystem } from './hook';
 import { events } from '../core/events';
 
 export interface GameCallbacks {
@@ -91,16 +90,8 @@ export class RaftEngine {
   private debrisSpawnTimer = 0;
   private nextDebrisId = 1;
 
-  // Hook Projectile & Rope
-  public hookState: 'IDLE' | 'CHARGING' | 'THROWN' | 'FLOATING' | 'RETRACTING' = 'IDLE';
-  public hookPos = new THREE.Vector3();
-  public hookVel = new THREE.Vector3();
-  public hookPower = 0;
-  public hookCaught: DebrisObject[] = [];
-  public hookMesh: THREE.Group;
-  public ropeLine: THREE.Line;
-  public fpsToolContainer: THREE.Group = new THREE.Group();
-  private currentToolModel: THREE.Group | null = null;
+  // Hook System (projectile state machine, rope, held FPS tool models)
+  public hookSystem: HookSystem;
 
   // Build Mode state moved to BuildSystem (this.build)
 
@@ -184,7 +175,7 @@ export class RaftEngine {
         this.build.enterBuildMode(building);
       },
       onToolSlotChanged: (itemId) => {
-        this.updateEquippedTool();
+        this.hookSystem.updateEquippedTool(this.hotbar[this.activeHotbarIdx]?.itemId ?? null);
         if (itemId === 'hammer') {
           this.build.enterBuildMode();
         } else if (this.build.isBuildMode) {
@@ -231,20 +222,8 @@ export class RaftEngine {
     });
 
 
-    // FPS Camera Tool Container
-    this.camera.add(this.fpsToolContainer);
-    this.scene.add(this.camera);
-
-    // Hook Mesh & Rope (World Thrown Projectile)
-    this.hookMesh = createGrapplingHookMesh(false);
-    this.hookMesh.visible = false;
-    this.scene.add(this.hookMesh);
-
-    const ropeGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-    const ropeMat = new THREE.LineBasicMaterial({ color: 0xfef08a, linewidth: 2 });
-    this.ropeLine = new THREE.Line(ropeGeo, ropeMat);
-    this.ropeLine.visible = false;
-    this.scene.add(this.ropeLine);
+    // Hook & FPS Tool System (projectile state machine, rope, held tool models)
+    this.hookSystem = new HookSystem({ scene: this.scene, camera: this.camera });
 
     // Multiplayer Network Client
     this.multiplayer = new MultiplayerClient(this.scene, this.camera, {
@@ -333,8 +312,8 @@ export class RaftEngine {
       },
       addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
       saveWorld: (notify) => this.saveWorld(notify),
-      getHookState: () => this.hookState,
-      getHookPos: () => this.hookPos,
+      getHookState: () => this.hookSystem.hookState,
+      getHookPos: () => this.hookSystem.hookPos,
     });
 
     // Load Saved World or Create Starter Raft
@@ -360,7 +339,7 @@ export class RaftEngine {
     }
 
     // Update active equipped tool
-    this.updateEquippedTool();
+    this.hookSystem.updateEquippedTool(this.hotbar[this.activeHotbarIdx]?.itemId ?? null);
 
     // Bind event listeners
     this.setupEventListeners();
@@ -420,19 +399,6 @@ export class RaftEngine {
       rotSpeed: (Math.random() - 0.5) * 0.7,
       yields,
     });
-  }
-
-  private updateEquippedTool() {
-    if (this.currentToolModel) {
-      this.fpsToolContainer.remove(this.currentToolModel);
-      this.currentToolModel = null;
-    }
-
-    const slot = this.hotbar[this.activeHotbarIdx];
-    if (!slot || !slot.itemId) return;
-
-    this.currentToolModel = createFPSTool(slot.itemId);
-    this.fpsToolContainer.add(this.currentToolModel);
   }
 
   // Setup Event Handlers
@@ -877,13 +843,8 @@ export class RaftEngine {
 
     // 5. Equipped Tool Actions
     if (activeSlot?.itemId === 'hook') {
-      if (this.hookState === 'IDLE') {
-        this.hookState = 'CHARGING';
-        this.hookPower = 0;
-      } else if (this.hookState === 'THROWN' || this.hookState === 'FLOATING') {
-        this.hookState = 'RETRACTING';
-        soundManager.playReelClick();
-      }
+      this.hookSystem.chargeStart();
+      this.hookSystem.reelClick();
     } else if (activeSlot?.itemId === 'fishing_rod') {
       // Minecraft-style Fishing Rod
       if (this.fishingSystem.state === 'IDLE') {
@@ -906,7 +867,7 @@ export class RaftEngine {
         }
       }
     } else if (activeSlot?.itemId === 'spear') {
-      this.sharkSystem.spearThrust(this.currentToolModel);
+      this.sharkSystem.spearThrust(this.hookSystem.toolModel);
     } else if (activeSlot?.itemId === 'cup_freshwater') {
       // Drink
       this.playerSystem.player.stats.thirst = Math.min(100, this.playerSystem.player.stats.thirst + 45);
@@ -982,20 +943,9 @@ export class RaftEngine {
     }
   }
 
-  // Left Click Up (Release hook throw)
+  // Left Click Up (Release hook throw, delegated to HookSystem)
   private handleLeftClickUp() {
-    if (this.hookState === 'CHARGING') {
-      this.hookState = 'THROWN';
-      soundManager.playHookThrow();
-
-      const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
-      const speed = 15 + this.hookPower * 24;
-
-      const startPos = new THREE.Vector3(0.35, -0.2, -0.7).applyMatrix4(this.camera.matrixWorld);
-      this.hookPos.copy(startPos);
-      this.hookVel.copy(lookDir).multiplyScalar(speed);
-      this.hookVel.y += 3.8; // Upward arc
-    }
+    this.hookSystem.releaseThrow();
   }
 
   // Debris Compactor: Feed junk materials (wood, plastic, thatch/leaf, scrap) into hopper
@@ -1317,133 +1267,14 @@ export class RaftEngine {
     // 3. Player Movement & Physics (PlayerSystem: walking, swimming, gravity, ceiling)
     this.playerSystem.update(dt, elapsed);
 
-    // 4. Hook Mechanics
-    if (this.hookState === 'CHARGING') {
-      this.hookPower = Math.min(1.0, this.hookPower + dt * 1.25);
-    }
-
-    const rodTip = new THREE.Vector3(0.35, -0.22, -0.75).applyMatrix4(this.camera.matrixWorld);
-    const activeSlot = this.hotbar[this.activeHotbarIdx];
-
-    // Held FPS Tool dynamics: Hook charging windup, Idle breathing, or throw hide
-    if (activeSlot?.itemId === 'hook' && this.currentToolModel) {
-      if (this.hookState === 'CHARGING') {
-        // Wind-up: pull back and elevate with tension
-        this.currentToolModel.position.set(
-          0.32,
-          -0.24 + this.hookPower * 0.08,
-          -0.52 - this.hookPower * 0.16
-        );
-        this.currentToolModel.rotation.set(
-          0.25 + this.hookPower * 0.35,
-          -0.18 + this.hookPower * 0.12,
-          0.08
-        );
-        this.currentToolModel.visible = true;
-      } else if (this.hookState === 'IDLE') {
-        this.currentToolModel.position.set(0.32, -0.24 + Math.sin(elapsed * 2) * 0.004, -0.52);
-        this.currentToolModel.rotation.set(0.25, -0.18, 0.08);
-        this.currentToolModel.visible = true;
-      } else {
-        // While hook projectile is out in the ocean, hide held hook so it doesn't double-render
-        this.currentToolModel.visible = false;
-      }
-    } else if (this.currentToolModel) {
-      this.currentToolModel.visible = true;
-    }
-
-    // World projectile hook visibility (ONLY visible in the world scene when actively thrown/floating/retracting)
-    if (this.hookState === 'IDLE' || this.hookState === 'CHARGING') {
-      this.hookMesh.visible = false;
-      this.ropeLine.visible = false;
-    } else {
-      this.hookMesh.visible = true;
-      this.ropeLine.visible = true;
-
-      if (this.hookState === 'THROWN') {
-        this.hookVel.y -= 14.5 * dt;
-        this.hookPos.addScaledVector(this.hookVel, dt);
-        this.hookMesh.lookAt(this.hookPos.clone().add(this.hookVel));
-
-        if (this.hookPos.y <= 0.08) {
-          this.hookPos.y = 0.08;
-          this.hookState = 'FLOATING';
-          soundManager.playWaterSplash(0.8);
-        }
-        if (this.hookPos.distanceTo(this.playerSystem.player.pos) > 52) {
-          this.hookState = 'RETRACTING';
-        }
-      } else if (this.hookState === 'FLOATING') {
-        this.hookPos.z += effectiveDrift * dt;
-        this.hookPos.y = 0.05 + Math.sin(elapsed * 3.5) * 0.04;
-        if (this.hookPos.distanceTo(this.playerSystem.player.pos) > 56) {
-          this.hookState = 'RETRACTING';
-        }
-      } else if (this.hookState === 'RETRACTING') {
-        const pullTarget = new THREE.Vector3(this.playerSystem.player.pos.x, this.playerSystem.player.pos.y - 0.35, this.playerSystem.player.pos.z);
-        const toPlayer = pullTarget.clone().sub(this.hookPos);
-        const dist = toPlayer.length();
-
-        if (dist < 1.4) {
-          // Snagged loot collected!
-          if (this.hookCaught.length > 0) {
-            this.hookCaught.forEach((item) => {
-              Object.entries(item.yields).forEach(([res, count]) => {
-                this.inventorySystem.addItemToInventory(res as ResourceId, count || 1);
-                const def = ITEM_DEFINITIONS[res as ResourceId];
-                this.callbacks.onToast(`+${count} ${def?.name || res}`, def?.color || '#38bdf8');
-              });
-              this.scene.remove(item.mesh);
-              const idx = this.debrisList.indexOf(item);
-              if (idx !== -1) this.debrisList.splice(idx, 1);
-            });
-            soundManager.playItemCollect();
-            this.hookCaught = [];
-          }
-          this.hookState = 'IDLE';
-          if (activeSlot?.itemId === 'hook' && this.currentToolModel) {
-            this.currentToolModel.visible = true;
-          }
-        } else {
-          toPlayer.normalize();
-          this.hookPos.addScaledVector(toPlayer, 22.0 * dt);
-          if (dist > 3.0) {
-            this.hookPos.y = THREE.MathUtils.lerp(this.hookPos.y, 0.15, dt * 8);
-          }
-          this.hookMesh.lookAt(pullTarget);
-        }
-      }
-
-      // Check collision with floating debris
-      if ((this.hookState === 'FLOATING' || this.hookState === 'RETRACTING' || this.hookState === 'THROWN') && this.hookCaught.length < 3) {
-        for (let d of this.debrisList) {
-          if (!d.caught && d.mesh.position.distanceTo(this.hookPos) < 1.4) {
-            d.caught = true;
-            this.hookCaught.push(d);
-            soundManager.playWaterSplash(0.5);
-            if (this.hookState === 'FLOATING') {
-              this.hookState = 'RETRACTING';
-            }
-          }
-        }
-      }
-
-      this.hookMesh.position.copy(this.hookPos);
-      this.hookCaught.forEach((d, idx) => {
-        d.mesh.position.copy(this.hookPos);
-        d.mesh.position.y -= 0.12 * idx;
-      });
-
-      // Update rope line
-      const ropePos = this.ropeLine.geometry.attributes.position.array as Float32Array;
-      ropePos[0] = rodTip.x;
-      ropePos[1] = rodTip.y;
-      ropePos[2] = rodTip.z;
-      ropePos[3] = this.hookPos.x;
-      ropePos[4] = this.hookPos.y;
-      ropePos[5] = this.hookPos.z;
-      this.ropeLine.geometry.attributes.position.needsUpdate = true;
-    }
+    // 4. Hook Mechanics (HookSystem: charging, projectile physics, loot collection)
+    this.hookSystem.update(dt, elapsed, {
+      effectiveDrift,
+      playerPos: this.playerSystem.player.pos,
+      activeToolId: this.hotbar[this.activeHotbarIdx]?.itemId ?? null,
+      debrisList: this.debrisList,
+      addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
+    });
 
     // 4b. Minecraft-style Fishing System Update
     const fishingRodTip = new THREE.Vector3(0.38, -0.16, -1.2).applyMatrix4(this.camera.matrixWorld);

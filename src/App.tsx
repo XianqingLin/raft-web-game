@@ -163,8 +163,8 @@ export default function App() {
     // Periodic state poller for hook charging bar and build mode
     const pollInterval = window.setInterval(() => {
       if (engineRef.current) {
-        setHookState(engineRef.current.hookState);
-        setHookPower(engineRef.current.hookPower);
+        setHookState(engineRef.current.hookSystem.hookState);
+        setHookPower(engineRef.current.hookSystem.hookPower);
         setIsBuildMode(engineRef.current.build.isBuildMode);
         setIsDemolishMode(engineRef.current.build.isDemolishMode);
         setSelectedBuilding(engineRef.current.build.selectedBuildingType);
