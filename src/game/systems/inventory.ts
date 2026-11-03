@@ -325,7 +325,7 @@ export function createInventorySystem(w: WorldView): InventorySystem {
       onInventoryChange: (inv) => w.ui.onInventoryChange(inv),
       onStatsChange: (stats) => w.ui.onStatsChange(stats),
     },
-    player: w.player().player,
+    player: w.player().localPlayer,
     onReadyToBuild: (building) => w.build().enterBuildMode(building),
     onToolSlotChanged: (itemId) => {
       const inv = w.inventory();

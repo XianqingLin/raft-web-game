@@ -66,11 +66,11 @@ export class StationSystem {
         const cookedId: ItemId = isShark ? 'cooked_shark_meat' : isFish ? 'cooked_fish' : 'cooked_potato';
 
         // If player is hungry (< 95), automatically eat on the spot!
-        if (this.ctx.player().player.stats.hunger < 95) {
+        if (this.ctx.player().localPlayer.stats.hunger < 95) {
           const hungerBonus = isShark ? 65 : isFish ? 40 : 25;
           const healthBonus = isShark ? 30 : isFish ? 15 : 8;
-          this.ctx.player().player.stats.hunger = Math.min(100, this.ctx.player().player.stats.hunger + hungerBonus);
-          this.ctx.player().player.stats.health = Math.min(100, this.ctx.player().player.stats.health + healthBonus);
+          this.ctx.player().localPlayer.stats.hunger = Math.min(100, this.ctx.player().localPlayer.stats.hunger + hungerBonus);
+          this.ctx.player().localPlayer.stats.health = Math.min(100, this.ctx.player().localPlayer.stats.health + healthBonus);
           soundManager.playEat();
           events.emit('toast', {
             text: `Ate freshly grilled ${isShark ? 'Shark Steak' : isFish ? 'Fish' : 'Potato'}! (+${hungerBonus} Hunger, +${healthBonus} HP)`,
@@ -152,8 +152,8 @@ export class StationSystem {
     // 2. Purifier - Automatic Boil & Automatic Drink/Store
     if (structure.type === 'purifier') {
       if (structure.data?.purifierFreshWater) {
-        if (this.ctx.player().player.stats.thirst < 95) {
-          this.ctx.player().player.stats.thirst = Math.min(100, this.ctx.player().player.stats.thirst + 45);
+        if (this.ctx.player().localPlayer.stats.thirst < 95) {
+          this.ctx.player().localPlayer.stats.thirst = Math.min(100, this.ctx.player().localPlayer.stats.thirst + 45);
           soundManager.playDrink();
           events.emit('toast', { text: 'Drank fresh clean water! (+45 Thirst)', color: '#38bdf8' });
           this.ctx.onStatsChange();
@@ -333,7 +333,7 @@ export class StationSystem {
     if (structure.type === 'bed') {
       if (this.ctx.getIsNight()) {
         const newDay = this.ctx.advanceToMorning();
-        this.ctx.player().player.stats.health = Math.min(100, this.ctx.player().player.stats.health + 35);
+        this.ctx.player().localPlayer.stats.health = Math.min(100, this.ctx.player().localPlayer.stats.health + 35);
         soundManager.playDrink();
         events.emit('toast', { text: `Rested peacefully until morning. Day ${newDay}!`, color: '#38bdf8' });
         this.ctx.onStatsChange();
@@ -536,7 +536,7 @@ export function createStationSystem(w: WorldView): StationSystem {
       w.ui.onHotbarChange([...inv.hotbar], inv.activeHotbarIdx);
     },
     onInventoryChange: () => w.ui.onInventoryChange([...w.inventory().inventory]),
-    onStatsChange: () => w.ui.onStatsChange({ ...w.player().player.stats }),
+    onStatsChange: () => w.ui.onStatsChange({ ...w.player().localPlayer.stats }),
     onOpenChest: (chest) => w.ui.onOpenChest(chest),
     onOpenCompactor: () => w.ui.onOpenCompactor?.(),
     getIsNight: () => w.time().isNight,

@@ -522,7 +522,7 @@ export function createSharkSystem(w: WorldView): SharkSystem {
   const system = new SharkSystem({
     scene: w.scene,
     camera: w.camera,
-    player: w.player().player,
+    player: w.player().localPlayer,
     structures: w.build().structures,
     raftGroup: w.build().raftGroup,
     callbacks: {

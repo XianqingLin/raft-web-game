@@ -264,7 +264,7 @@ export class GameWorld implements EngineDelegate {
     this.hookSystem.updateEquippedTool(this.hotbar[this.activeHotbarIdx]?.itemId ?? null);
 
     // Notify initial state to React
-    this.callbacks.onStatsChange({ ...this.playerSystem.player.stats });
+    this.callbacks.onStatsChange({ ...this.playerSystem.localPlayer.stats });
     this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
     this.callbacks.onInventoryChange([...this.inventory]);
 
@@ -309,7 +309,7 @@ export class GameWorld implements EngineDelegate {
         tick: (dt, elapsed) =>
           this.hookSystem.update(dt, elapsed, {
             effectiveDrift: this.getEffectiveDrift(),
-            playerPos: this.playerSystem.player.pos,
+            playerPos: this.playerSystem.localPlayer.pos,
             activeToolAction: this.getActivePrimaryAction() ?? null,
             debrisList: this.state.debris,
             addItemToInventory: (id, count) => this.inventorySystem.addItemToInventory(id, count),
@@ -322,7 +322,7 @@ export class GameWorld implements EngineDelegate {
           const waveSMult = this.weatherSystem.getWaveSpeedMultiplier();
           this.fishingSystem.update(
             dt,
-            this.playerSystem.player.pos,
+            this.playerSystem.localPlayer.pos,
             elapsed,
             (x, z) => this.oceanEnv.getWaveHeightAt(x, z, elapsed, waveHMult, waveSMult)
           );

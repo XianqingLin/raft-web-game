@@ -1029,7 +1029,7 @@ export function createBuildSystem(w: WorldView): BuildSystem {
   return new BuildSystem({
     scene: w.scene,
     camera: w.camera,
-    player: w.player().player,
+    player: w.player().localPlayer,
     inventory: w.inventory(),
     onSave: () => w.saveWorld(),
     getIslandHeight: (x, z) => w.islands().getHeightAt(x, z),

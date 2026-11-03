@@ -11,10 +11,12 @@
 import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { PlayerStats } from '../../types/game';
+import { PlayerSpawnDef } from '../../data/worldDefinition';
 import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/models';
 import { soundManager } from '../../audio/soundManager';
 import { events } from '../../core/events';
 import { BuildSystem } from './build';
+import { PlayerState } from '../context';
 
 /** 鼠标灵敏度（弧度/像素） */
 const MOUSE_SENSITIVITY = 0.0022;
@@ -31,27 +33,17 @@ export interface PlayerSystemContext {
   onStatsChange: (stats: PlayerStats) => void;
 }
 
+/**
+ * PlayerSystem —— 玩家实体管理器（entity-manager 模式）。
+ *
+ * 实体：PlayerState（context.ts，纯数据）。基数由 WorldDefinition.players
+ * 决定（单人模式即长度 1 的数组）；本地玩家（localPlayer）是本客户端输入
+ * 与相机的宿主——这是多人化的接缝：输入/相机永远只路由到 localPlayer，
+ * 远程玩家未来复用同一集合与 tick，只是不走输入分支。
+ */
 export class PlayerSystem {
-  public player = {
-    pos: new THREE.Vector3(0, BLOCK_HEIGHT / 2 + 1.7, 0),
-    vel: new THREE.Vector3(0, 0, 0),
-    yaw: 0,
-    pitch: 0,
-    speed: 6.2,
-    onGround: true,
-    inWater: false,
-    /** 玩家在水中持续时长（shark 系统用于水中袭击判定） */
-    waterTime: 0,
-    stats: {
-      health: 100,
-      maxHealth: 100,
-      hunger: 90,
-      maxHunger: 100,
-      thirst: 90,
-      maxThirst: 100,
-      isDead: false,
-    } as PlayerStats,
-  };
+  /** 已生成的玩家实体集合（players[0] 即本地玩家） */
+  private players: PlayerState[] = [];
 
   private ctx: PlayerSystemContext;
   private spaceKeyHandled = false;
@@ -61,17 +53,59 @@ export class PlayerSystem {
     this.ctx = ctx;
   }
 
+  // ==================== Entity Lifecycle ====================
+
+  /** 生成一个玩家（def 来自 WorldDefinition；缺省出生在初始木筏上方） */
+  public spawn(def: PlayerSpawnDef): PlayerState {
+    const [x = 0, y = BLOCK_HEIGHT / 2 + 1.7, z = 0] = def.position ?? [];
+    const player: PlayerState = {
+      pos: new THREE.Vector3(x, y, z),
+      vel: new THREE.Vector3(0, 0, 0),
+      yaw: 0,
+      pitch: 0,
+      speed: 6.2,
+      onGround: true,
+      inWater: false,
+      /** 玩家在水中持续时长（shark 系统用于水中袭击判定） */
+      waterTime: 0,
+      stats: {
+        health: 100,
+        maxHealth: 100,
+        hunger: 90,
+        maxHunger: 100,
+        thirst: 90,
+        maxThirst: 100,
+        isDead: false,
+      } as PlayerStats,
+    };
+    this.players.push(player);
+    return player;
+  }
+
+  /** 本地玩家：输入与相机的宿主（输入路由、存档、Respawn 都走它） */
+  public get localPlayer(): PlayerState {
+    if (this.players.length === 0) {
+      throw new Error('PlayerSystem: no player spawned — check WorldDefinition.players');
+    }
+    return this.players[0];
+  }
+
   // ==================== Movement & Physics ====================
 
-  /**
-   * 每帧调用：视角同步、WASD 移动与碰撞、跳跃/游泳/爬岸、重力与浮力、
-   * 二层天花板碰撞，最后把相机对齐到玩家眼睛位置。
-   */
+  /** 每帧调用：逐玩家 tick（本地玩家额外做输入驱动与相机同步） */
   public update(dt: number, elapsed: number) {
-    const player = this.player;
+    for (let i = 0; i < this.players.length; i++) {
+      this.tickPlayer(this.players[i], dt, elapsed, i === 0);
+    }
+  }
 
+  /**
+   * 单个玩家的 tick：视角同步、WASD 移动与碰撞、跳跃/游泳/爬岸、
+   * 重力与浮力、二层天花板碰撞；本地玩家最后把相机对齐到眼睛位置。
+   */
+  private tickPlayer(player: PlayerState, dt: number, elapsed: number, isLocal: boolean) {
     // Input-driven movement (only while pointer locked & alive)
-    if (this.ctx.getPointerLocked() && !player.stats.isDead) {
+    if (isLocal && this.ctx.getPointerLocked() && !player.stats.isDead) {
       this.ctx.camera.rotation.order = 'YXZ';
       this.ctx.camera.rotation.y = player.yaw;
       this.ctx.camera.rotation.x = player.pitch;
@@ -197,14 +231,23 @@ export class PlayerSystem {
       }
     }
 
-    this.ctx.camera.position.copy(player.pos);
+    // Camera follows the local player only
+    if (isLocal) {
+      this.ctx.camera.position.copy(player.pos);
+    }
   }
 
   // ==================== Survival ====================
 
-  /** 生存数值衰减：口渴/饥饿递减、营养良好时回血、归零掉血、死亡触发 */
+  /** 生存数值衰减：逐玩家处理口渴/饥饿/回血/死亡 */
   public updateSurvival(dt: number) {
-    const stats = this.player.stats;
+    for (const player of this.players) {
+      this.tickSurvival(player, dt);
+    }
+  }
+
+  private tickSurvival(player: PlayerState, dt: number) {
+    const stats = player.stats;
     if (stats.isDead) return;
 
     // Thirst decays ~1 every 6s, Hunger decays ~1 every 9s
@@ -225,7 +268,7 @@ export class PlayerSystem {
       stats.isDead = true;
       events.emit('toast', { text: 'YOU DIED. Respawning on Raft...', color: '#ef4444' });
       setTimeout(() => {
-        this.respawnPlayer();
+        this.respawn(player);
       }, 3000);
     }
 
@@ -237,10 +280,15 @@ export class PlayerSystem {
     }
   }
 
+  /** 重生本地玩家（UI 的 Respawn 按钮与世界重置走这里） */
   public respawnPlayer() {
-    const stats = this.player.stats;
-    this.player.pos.set(0, BLOCK_HEIGHT / 2 + 1.7, 0);
-    this.player.vel.set(0, 0, 0);
+    this.respawn(this.localPlayer);
+  }
+
+  private respawn(player: PlayerState) {
+    const stats = player.stats;
+    player.pos.set(0, BLOCK_HEIGHT / 2 + 1.7, 0);
+    player.vel.set(0, 0, 0);
     stats.health = 100;
     stats.hunger = 70;
     stats.thirst = 70;
@@ -256,24 +304,26 @@ export class PlayerSystem {
 
   // ==================== Look & Water Queries ====================
 
-  /** 鼠标视角：灵敏度缩放 + 俯仰钳制（GameWorld 只转发原始位移量） */
+  /** 鼠标视角：灵敏度缩放 + 俯仰钳制（GameWorld 只转发原始位移量；仅本地玩家） */
   public applyLookDelta(dx: number, dy: number) {
-    this.player.yaw -= dx * MOUSE_SENSITIVITY;
-    this.player.pitch -= dy * MOUSE_SENSITIVITY;
-    this.player.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.player.pitch));
+    const player = this.localPlayer;
+    player.yaw -= dx * MOUSE_SENSITIVITY;
+    player.pitch -= dy * MOUSE_SENSITIVITY;
+    player.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, player.pitch));
   }
 
   /** 是否处于可取水位置（在水中或贴近水面）——空杯舀海水的判定 */
   public canScoopSaltwater(): boolean {
-    // 相机位置每帧与玩家坐标同步（update 末尾 copy），因此只读玩家状态即可
-    return this.player.inWater || this.player.pos.y < 3.0;
+    const player = this.localPlayer;
+    // 相机位置每帧与玩家坐标同步（tick 末尾 copy），因此只读玩家状态即可
+    return player.inWater || player.pos.y < 3.0;
   }
 }
 
 // ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
 
 export function createPlayerSystem(w: WorldView): PlayerSystem {
-  return new PlayerSystem({
+  const system = new PlayerSystem({
     camera: w.camera,
     keys: w.keys,
     getPointerLocked: w.isPointerLocked,
@@ -281,4 +331,10 @@ export function createPlayerSystem(w: WorldView): PlayerSystem {
     getIslandHeight: (x, z) => w.islands().getHeightAt(x, z),
     onStatsChange: (stats) => w.ui.onStatsChange(stats),
   });
+
+  // 基数归 WorldDefinition：单人模式即 players 数组长度 1
+  for (const def of w.definition.players) {
+    system.spawn(def);
+  }
+  return system;
 }

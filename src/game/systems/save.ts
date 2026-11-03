@@ -75,12 +75,12 @@ export class SaveSystem {
       sharkDefeatedOnce: shark.sharkDefeatedOnce,
       structures: build.serializeStructures(),
       player: {
-        stats: { ...player.player.stats },
+        stats: { ...player.localPlayer.stats },
         hotbar: [...inventory.hotbar],
         inventory: [...inventory.inventory],
-        pos: { x: player.player.pos.x, y: player.player.pos.y, z: player.player.pos.z },
-        yaw: player.player.yaw,
-        pitch: player.player.pitch,
+        pos: { x: player.localPlayer.pos.x, y: player.localPlayer.pos.y, z: player.localPlayer.pos.z },
+        yaw: player.localPlayer.yaw,
+        pitch: player.localPlayer.pitch,
       },
     };
 
@@ -110,15 +110,15 @@ export class SaveSystem {
     if (save.player) {
       if (save.player.hotbar && Array.isArray(save.player.hotbar)) inventory.hotbar = save.player.hotbar;
       if (save.player.inventory && Array.isArray(save.player.inventory)) inventory.inventory = save.player.inventory;
-      if (save.player.stats) player.player.stats = { ...player.player.stats, ...save.player.stats };
+      if (save.player.stats) player.localPlayer.stats = { ...player.localPlayer.stats, ...save.player.stats };
       if (save.player.pos) {
-        player.player.pos.set(save.player.pos.x, save.player.pos.y, save.player.pos.z);
+        player.localPlayer.pos.set(save.player.pos.x, save.player.pos.y, save.player.pos.z);
       }
-      if (save.player.yaw !== undefined) player.player.yaw = save.player.yaw;
-      if (save.player.pitch !== undefined) player.player.pitch = save.player.pitch;
+      if (save.player.yaw !== undefined) player.localPlayer.yaw = save.player.yaw;
+      if (save.player.pitch !== undefined) player.localPlayer.pitch = save.player.pitch;
 
       const { callbacks } = this.ctx;
-      callbacks.onStatsChange({ ...player.player.stats });
+      callbacks.onStatsChange({ ...player.localPlayer.stats });
       callbacks.onHotbarChange([...inventory.hotbar], inventory.activeHotbarIdx);
       callbacks.onInventoryChange([...inventory.inventory]);
     }

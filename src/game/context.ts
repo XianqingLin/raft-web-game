@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { PlayerStats } from '../types/game';
 
 /**
- * Shared player state shape (structurally implemented by Game.playerSystem.player).
- * Subsystem modules depend on this interface instead of the Game class,
- * which keeps the dependency graph acyclic.
+ * 玩家实体数据（entity-manager 模式中的 Entity）——纯数据，无行为。
+ * 由 PlayerSystem 持有集合（WorldDefinition.players 决定基数），
+ * 各子系统依赖本接口而非 PlayerSystem 类，保持依赖图无环。
  */
 export interface PlayerState {
   pos: THREE.Vector3;

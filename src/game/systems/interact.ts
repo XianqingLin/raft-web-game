@@ -194,7 +194,7 @@ export class InteractionSystem {
 export function createInteractionSystem(w: WorldView): InteractionSystem {
   return new InteractionSystem({
     camera: w.camera,
-    player: w.player().player,
+    player: w.player().localPlayer,
     build: w.build(),
     stations: w.stations(),
     fishing: w.fishing(),

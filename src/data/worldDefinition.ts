@@ -25,6 +25,12 @@ export interface SharkSpawnDef {
   angle?: number;
 }
 
+/** 生物实体生成定义：玩家 */
+export interface PlayerSpawnDef {
+  /** 初始位置 [x,y,z]（默认在初始木筏上方） */
+  position?: [number, number, number];
+}
+
 export interface WorldDefinition {
   /** 存档中显示的世界名 */
   worldName: string;
@@ -39,6 +45,8 @@ export interface WorldDefinition {
   merchants: MerchantSpawnDef[];
   /** 生物实体：鲨鱼（数组 = 基数归数据层） */
   sharks: SharkSpawnDef[];
+  /** 生物实体：玩家（数组 = 基数归数据层；单人模式即长度 1） */
+  players: PlayerSpawnDef[];
   /** 开局漂浮物 */
   initialDebris: {
     count: number;
@@ -54,6 +62,7 @@ export const DEFAULT_WORLD: WorldDefinition = {
   start: { dayTime: 0.25, dayCount: 1 },
   merchants: [{ position: [-26, 0, -22] }],
   sharks: [{ position: [20, -0.4, 0], circleRadius: 18, speed: 3.5 }],
+  players: [{}],
   initialDebris: { count: 6, xRange: [-55, 30] },
   autoSaveIntervalMs: 12000,
 };

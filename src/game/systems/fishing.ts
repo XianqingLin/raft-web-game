@@ -514,7 +514,7 @@ export function createFishingSystem(w: WorldView): FishingSystem {
   return new FishingSystem({
     scene: w.scene,
     camera: w.camera,
-    getPlayerPos: () => w.player().player.pos,
+    getPlayerPos: () => w.player().localPlayer.pos,
     addItemToInventory: (itemId, count) => w.inventory().addItemToInventory(itemId, count),
     consumeRodDurability: () => w.inventory().consumeRodDurability(),
     onToast: w.toast,
