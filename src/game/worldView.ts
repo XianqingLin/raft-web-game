@@ -1,5 +1,4 @@
 import type * as THREE from 'three';
-import type { GameCallbacks } from './ui';
 import type { GameAction } from './engine/inputMap';
 import type { RaftGameDefinition } from '../data/gameDefinition';
 import type { OceanEnvironment } from './systems/environment/ocean';
@@ -54,8 +53,4 @@ export interface WorldView {
   // 世界级服务
   /** 存档（BuildSystem 放置后自动存档、SharkSystem 击杀后存档走这里） */
   saveWorld: (notify?: boolean) => void;
-
-  // UI 回调（toast 已统一走事件总线）
-  toast: (text: string, color?: string) => void;
-  ui: GameCallbacks;
 }

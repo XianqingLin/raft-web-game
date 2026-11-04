@@ -1,7 +1,8 @@
 import type { WorldView } from '../worldView';
-import { WorldSaveData, PlayerStats, HotbarSlot, InventorySlot } from '../../types/game';
+import { WorldSaveData } from '../../types/game';
 import type { TimeSystem } from './time';
 import { saveWorldLocally, loadWorldLocally, clearWorldLocally } from '../storage';
+import { events } from '../../core/events';
 import { BuildSystem } from './build';
 import { InventorySystem } from './inventory';
 import { PlayerSystem } from './player';
@@ -26,12 +27,6 @@ export interface SaveSystemContext {
   definition: {
     worldName: string;
     autoSaveIntervalMs: number;
-  };
-  callbacks: {
-    onToast: (text: string, color?: string) => void;
-    onStatsChange: (stats: PlayerStats) => void;
-    onHotbarChange: (hotbar: HotbarSlot[], activeIdx: number) => void;
-    onInventoryChange: (inventory: InventorySlot[]) => void;
   };
 }
 
@@ -88,7 +83,7 @@ export class SaveSystem {
     saveWorldLocally(save);
 
     if (notify) {
-      this.ctx.callbacks.onToast('💾 World saved successfully!', '#10b981');
+      events.emit('toast', { text: '💾 World saved successfully!', color: '#10b981' });
     }
     return save;
   }
@@ -126,10 +121,9 @@ export class SaveSystem {
       if (save.player.yaw !== undefined) player.localPlayer.yaw = save.player.yaw;
       if (save.player.pitch !== undefined) player.localPlayer.pitch = save.player.pitch;
 
-      const { callbacks } = this.ctx;
-      callbacks.onStatsChange({ ...player.localPlayer.stats });
-      callbacks.onHotbarChange([...inventory.hotbar], inventory.activeHotbarIdx);
-      callbacks.onInventoryChange([...inventory.inventory]);
+      events.emit('statsChanged', { ...player.localPlayer.stats });
+      events.emit('hotbarChanged', { hotbar: [...inventory.hotbar], activeIdx: inventory.activeHotbarIdx });
+      events.emit('inventoryChanged', [...inventory.inventory]);
     }
 
     return true;
@@ -159,12 +153,6 @@ export function createSaveSystem(w: WorldView): SaveSystem {
     definition: {
       worldName: w.definition.worldName,
       autoSaveIntervalMs: w.definition.autoSaveIntervalMs,
-    },
-    callbacks: {
-      onToast: w.toast,
-      onStatsChange: (stats) => w.ui.onStatsChange(stats),
-      onHotbarChange: (hotbar, activeIdx) => w.ui.onHotbarChange(hotbar, activeIdx),
-      onInventoryChange: (inv) => w.ui.onInventoryChange(inv),
     },
   });
 }

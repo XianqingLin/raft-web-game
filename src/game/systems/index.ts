@@ -1,7 +1,7 @@
 import type { WorldView } from '../worldView';
-import type { GameCallbacks } from '../ui';
 import type { RaftGameDefinition } from '../../data/gameDefinition';
 import { SystemRegistry } from '../lifecycle';
+import { events } from '../../core/events';
 import { createOceanEnvironment } from './environment/ocean';
 import { createWeather } from './environment/weather';
 import { TimeSystem, createTimeSystem } from './time';
@@ -41,7 +41,7 @@ export const SYS = {
  */
 export function createSystems(w: WorldView, r: SystemRegistry): SystemRegistry {
   // Time 最先：后续系统的 tick 都读 time.dayTime。
-  r.add(SYS.time, createTimeSystem(w));
+  r.add(SYS.time, createTimeSystem());
 
   r.add(SYS.player, createPlayerSystem(w));
   r.add(SYS.inventory, createInventorySystem(w));
@@ -93,10 +93,6 @@ export function bootstrapWorld(
   w: WorldView,
   systems: SystemRegistry,
   definition: RaftGameDefinition,
-  ui: Pick<
-    GameCallbacks,
-    'onToast' | 'onStatsChange' | 'onHotbarChange' | 'onInventoryChange'
-  >,
 ): void {
   const save = systems.get<SaveSystem>(SYS.save);
   const inventory = systems.get<InventorySystem>(SYS.inventory);
@@ -115,7 +111,10 @@ export function bootstrapWorld(
       }
     }
     save.load(savedWorld);
-    ui.onToast?.(`📂 World restored from previous save! (Day ${savedWorld.dayCount || 1})`, '#38bdf8');
+    events.emit('toast', {
+      text: `📂 World restored from previous save! (Day ${savedWorld.dayCount || 1})`,
+      color: '#38bdf8',
+    });
   } else {
     initializeNewGame(systems, definition);
   }
@@ -124,21 +123,20 @@ export function bootstrapWorld(
     inventory.hotbar[inventory.activeHotbarIdx]?.itemId ?? null
   );
 
-  ui.onStatsChange({ ...systems.get<PlayerSystem>(SYS.player).localPlayer.stats });
-  ui.onHotbarChange([...inventory.hotbar], inventory.activeHotbarIdx);
-  ui.onInventoryChange([...inventory.inventory]);
+  events.emit('statsChanged', { ...systems.get<PlayerSystem>(SYS.player).localPlayer.stats });
+  events.emit('hotbarChanged', { hotbar: [...inventory.hotbar], activeIdx: inventory.activeHotbarIdx });
+  events.emit('inventoryChanged', [...inventory.inventory]);
 }
 
 /** Raft 专用重置编排；通用 GameEngine 不认识这些系统或游戏定义。 */
 export function resetRaftWorld(
   systems: SystemRegistry,
   definition: RaftGameDefinition,
-  ui: Pick<GameCallbacks, 'onToast' | 'onStatsChange'>,
 ): void {
   systems.get<SaveSystem>(SYS.save).clear();
   systems.get<BuildSystem>(SYS.build).clearAll();
   systems.get<DebrisSystem>(SYS.debris).dispose();
   initializeNewGame(systems, definition);
-  ui.onStatsChange({ ...systems.get<PlayerSystem>(SYS.player).localPlayer.stats });
-  ui.onToast?.('🔄 World reset to initial 2x2 starter raft!', '#38bdf8');
+  events.emit('statsChanged', { ...systems.get<PlayerSystem>(SYS.player).localPlayer.stats });
+  events.emit('toast', { text: '🔄 World reset to initial 2x2 starter raft!', color: '#38bdf8' });
 }

@@ -4,8 +4,7 @@
  * 职责：木筏功能性站点的交互逻辑（烤架/净水器/作物/收集网/箱子/床）、
  * 站点每帧运转（煮沸/烤制/生长/捕网）。
  *
- * 通信约定：提示走事件总线 core/events.ts；UI 数值刷新通过 ctx 回调
- * onHotbarChange/onInventoryChange/onStatsChange（后续迁事件总线时移除）。
+ * 通信约定：提示与 UI 数值刷新统一走事件总线 core/events.ts。
  */
 
 import type { WorldView } from '../worldView';
@@ -30,11 +29,6 @@ export interface StationSystemContext {
   build: () => BuildSystem;
   player: () => PlayerSystem;
   inventory: InventorySystem;
-  /** UI 刷新回调（engine 侧包装 callbacks，后续迁事件总线时移除） */
-  onHotbarChange: () => void;
-  onInventoryChange: () => void;
-  onStatsChange: () => void;
-  onOpenChest: (chest: PlacedStructure) => void;
   /** 床睡觉判定（时间策略与数值都在 TimeSystem） */
   getIsNight: () => boolean;
   /** 推进到次日清晨，返回新的天数（用于提示文案） */
@@ -50,6 +44,17 @@ export class StationSystem implements Tickable {
 
   constructor(ctx: StationSystemContext) {
     this.ctx = ctx;
+  }
+
+  /** 快捷栏与背包总是成对变化，统一推送一次快照 */
+  private emitInventoryChanged() {
+    const inv = this.ctx.inventory;
+    events.emit('hotbarChanged', { hotbar: [...inv.hotbar], activeIdx: inv.activeHotbarIdx });
+    events.emit('inventoryChanged', [...inv.inventory]);
+  }
+
+  private emitStatsChanged() {
+    events.emit('statsChanged', { ...this.ctx.player().localPlayer.stats });
   }
 
   // Unified Smart Structure Interaction (Grill, Purifier, Crop Plot, Collection Net, Chest, Bed)
@@ -72,7 +77,7 @@ export class StationSystem implements Tickable {
             text: `Ate freshly grilled ${isShark ? 'Shark Steak' : isFish ? 'Fish' : 'Potato'}! (+${hungerBonus} Hunger, +${healthBonus} HP)`,
             color: '#22c55e',
           });
-          this.ctx.onStatsChange();
+          this.emitStatsChanged();
         } else {
           // If already full, store in inventory
           this.ctx.inventory.addItemToInventory(cookedId, 1);
@@ -136,8 +141,7 @@ export class StationSystem implements Tickable {
           soundManager.playSizzle();
           const foodLabel = foodId === 'shark_meat' ? 'Prime Shark Meat' : foodId === 'raw_fish' ? 'Raw Mackerel' : 'Raw Potato';
           events.emit('toast', { text: `Placed ${foodLabel} on Grill. Sizzling...`, color: '#f97316' });
-          this.ctx.onHotbarChange();
-          this.ctx.onInventoryChange();
+          this.emitInventoryChanged();
         } else {
           events.emit('toast', { text: 'No shark meat, fish, or potatoes in inventory to grill!', color: '#ef4444' });
         }
@@ -152,7 +156,7 @@ export class StationSystem implements Tickable {
           this.ctx.player().localPlayer.stats.thirst = Math.min(100, this.ctx.player().localPlayer.stats.thirst + 45);
           soundManager.playDrink();
           events.emit('toast', { text: 'Drank fresh clean water! (+45 Thirst)', color: '#38bdf8' });
-          this.ctx.onStatsChange();
+          this.emitStatsChanged();
         } else {
           let foundEmpty: HotbarSlot | InventorySlot | null = null;
           for (const slot of this.ctx.inventory.hotbar) {
@@ -177,8 +181,7 @@ export class StationSystem implements Tickable {
           }
           soundManager.playWaterSplash(0.9);
           events.emit('toast', { text: 'Collected Clean Water into Cup!', color: '#38bdf8' });
-          this.ctx.onHotbarChange();
-          this.ctx.onInventoryChange();
+          this.emitInventoryChanged();
         }
 
         structure.data.purifierFreshWater = false;
@@ -215,8 +218,7 @@ export class StationSystem implements Tickable {
           structure.data!.purifierBoilProgress = 0;
           soundManager.playWaterSplash(0.8);
           events.emit('toast', { text: 'Poured seawater into Purifier. Boiling...', color: '#38bdf8' });
-          this.ctx.onHotbarChange();
-          this.ctx.onInventoryChange();
+          this.emitInventoryChanged();
         } else {
           let foundEmpty: HotbarSlot | InventorySlot | null = null;
           for (const slot of this.ctx.inventory.hotbar) {
@@ -239,8 +241,7 @@ export class StationSystem implements Tickable {
             structure.data!.purifierBoilProgress = 0;
             soundManager.playWaterSplash(0.85);
             events.emit('toast', { text: 'Scooped seawater with Cup & started boiling!', color: '#38bdf8' });
-            this.ctx.onHotbarChange();
-            this.ctx.onInventoryChange();
+            this.emitInventoryChanged();
           } else {
             events.emit('toast', { text: 'Need a Wooden Cup with seawater to purify!', color: '#ef4444' });
           }
@@ -286,8 +287,7 @@ export class StationSystem implements Tickable {
           if (shoots) shoots.visible = true;
           soundManager.playItemCollect();
           events.emit('toast', { text: 'Planted Potato in Crop Plot!', color: '#22c55e' });
-          this.ctx.onHotbarChange();
-          this.ctx.onInventoryChange();
+          this.emitInventoryChanged();
         } else {
           events.emit('toast', { text: 'Need a Raw Potato in inventory to plant!', color: '#ef4444' });
         }
@@ -321,7 +321,7 @@ export class StationSystem implements Tickable {
     // 5. Chest
     if (structure.type === 'chest') {
       soundManager.playCraft();
-      this.ctx.onOpenChest(structure);
+      events.emit('openChestRequested', structure);
       return true;
     }
 
@@ -332,7 +332,7 @@ export class StationSystem implements Tickable {
         this.ctx.player().localPlayer.stats.health = Math.min(100, this.ctx.player().localPlayer.stats.health + 35);
         soundManager.playDrink();
         events.emit('toast', { text: `Rested peacefully until morning. Day ${newDay}!`, color: '#38bdf8' });
-        this.ctx.onStatsChange();
+        this.emitStatsChanged();
       } else {
         events.emit('toast', { text: 'You can only sleep during the night!', color: '#94a3b8' });
       }
@@ -425,13 +425,6 @@ export function createStationSystem(w: WorldView): StationSystem {
     build: () => w.build(),
     player: () => w.player(),
     inventory: w.inventory(),
-    onHotbarChange: () => {
-      const inv = w.inventory();
-      w.ui.onHotbarChange([...inv.hotbar], inv.activeHotbarIdx);
-    },
-    onInventoryChange: () => w.ui.onInventoryChange([...w.inventory().inventory]),
-    onStatsChange: () => w.ui.onStatsChange({ ...w.player().localPlayer.stats }),
-    onOpenChest: (chest) => w.ui.onOpenChest(chest),
     getIsNight: () => w.time().isNight,
     advanceToMorning: () => w.time().advanceToMorning(),
     getDebrisList: () => w.debris().items,

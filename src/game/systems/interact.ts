@@ -8,6 +8,7 @@ import { HookSystem } from './hook';
 import { InventorySystem } from './inventory';
 import { SharkSystem } from './shark';
 import { StationSystem } from './stations';
+import { events } from '../../core/events';
 
 /**
  * InteractionSystem —— 交互系统（拆分自 engine.ts，split step 9）。
@@ -37,7 +38,6 @@ export interface InteractionContext {
   canScoopSaltwater: () => boolean;
   /** 当前手持物品 id（水杯提示分支与工具主动作分发用） */
   getActiveItemId: () => ItemId | null;
-  onInteractPrompt: (prompt: string | null) => void;
 }
 
 import { Tickable } from '../lifecycle';
@@ -151,7 +151,7 @@ export class InteractionSystem implements Tickable {
     }
 
     this.aimedInteractable = foundInteract;
-    this.ctx.onInteractPrompt(promptText);
+    events.emit('interactPromptChanged', promptText);
   }
 
   // ==================== Click / Interact Resolution ====================
@@ -207,6 +207,5 @@ export function createInteractionSystem(w: WorldView): InteractionSystem {
       const inv = w.inventory();
       return inv.hotbar[inv.activeHotbarIdx]?.itemId ?? null;
     },
-    onInteractPrompt: (prompt) => w.ui.onInteractPrompt(prompt),
   });
 }

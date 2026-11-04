@@ -1,5 +1,5 @@
-import type { WorldView } from '../worldView';
 import type { NewGameDefinition } from '../../data/gameDefinition';
+import { events } from '../../core/events';
 
 /**
  * TimeSystem —— 昼夜时间系统（拆分自 engine.ts，split step 7）。
@@ -7,10 +7,6 @@ import type { NewGameDefinition } from '../../data/gameDefinition';
  * 职责：拥有并推进 dayTime/dayCount、
  * 格式化时钟并节流推送 UI、夜晚判定、睡觉跳到次日清晨。
  */
-
-export interface TimeSystemCallbacks {
-  onTimeChange: (day: number, timeStr: string, progress: number) => void;
-}
 
 import { Tickable } from '../lifecycle';
 
@@ -21,12 +17,7 @@ export class TimeSystem implements Tickable {
   private morningTime = 0.15;
   private _dayTime = 0;
   private _dayCount = 1;
-  private callbacks: TimeSystemCallbacks;
   private lastPushedTimeStr = '';
-
-  constructor(callbacks: TimeSystemCallbacks) {
-    this.callbacks = callbacks;
-  }
 
   /** 一天中的时间 0..1（0.25 = 正午） */
   public get dayTime(): number {
@@ -47,7 +38,7 @@ export class TimeSystem implements Tickable {
     const timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
     if (timeStr !== this.lastPushedTimeStr) {
       this.lastPushedTimeStr = timeStr;
-      this.callbacks.onTimeChange(this._dayCount, timeStr, this._dayTime);
+      events.emit('timeChanged', { day: this._dayCount, timeStr, progress: this._dayTime });
     }
   }
 
@@ -78,8 +69,6 @@ export class TimeSystem implements Tickable {
 
 // ==================== Factory（由 Raft 组合根统一接线） ====================
 
-export function createTimeSystem(w: WorldView): TimeSystem {
-  return new TimeSystem({
-    onTimeChange: (day, timeStr, progress) => w.ui.onTimeChange(day, timeStr, progress),
-  });
+export function createTimeSystem(): TimeSystem {
+  return new TimeSystem();
 }

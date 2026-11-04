@@ -2,7 +2,6 @@ import type {
   BuildingType,
   WorldSaveData,
 } from '../types/game';
-import { events } from '../core/events';
 import { DEFAULT_RAFT_GAME, type RaftGameDefinition } from '../data/gameDefinition';
 import { GameEngine } from './engine/gameEngine';
 import { SystemRegistry } from './lifecycle';
@@ -25,7 +24,6 @@ import type { SaveSystem } from './systems/save';
 import type { SharkSystem } from './systems/shark';
 import type { StationSystem } from './systems/stations';
 import type { TimeSystem } from './systems/time';
-import type { GameCallbacks, WorldCallbacks } from './ui';
 import type { WorldView } from './worldView';
 
 /** React 所需的少量高频状态；轮询细节不泄漏具体系统。 */
@@ -58,7 +56,6 @@ export class RaftGame {
     private engine: GameEngine,
     private systems: SystemRegistry,
     private definition: RaftGameDefinition,
-    private ui: WorldCallbacks,
   ) {
     this.commands = {
       selectHotbarSlot: (index) => {
@@ -83,7 +80,7 @@ export class RaftGame {
         return this.systems.get<SaveSystem>(SYS.save).save(notify);
       },
       resetWorld: () => {
-        resetRaftWorld(this.systems, this.definition, this.ui);
+        resetRaftWorld(this.systems, this.definition);
       },
     };
   }
@@ -121,14 +118,9 @@ export class RaftGame {
  */
 export function createRaftGame(
   container: HTMLElement,
-  callbacks: GameCallbacks,
   definition: RaftGameDefinition = DEFAULT_RAFT_GAME,
 ): RaftGame {
   const engine = new GameEngine(container);
-  const ui: WorldCallbacks = {
-    ...callbacks,
-    onToast: (text, color) => events.emit('toast', { text, color }),
-  };
   const systems = new SystemRegistry();
 
   const view: WorldView = {
@@ -151,19 +143,17 @@ export function createRaftGame(
     saveWorld: (notify = false) => {
       systems.get<SaveSystem>(SYS.save).save(notify);
     },
-    toast: (text, color) => ui.onToast(text, color),
-    ui,
   };
 
   createSystems(view, systems);
-  bootstrapWorld(view, systems, definition, ui);
+  bootstrapWorld(view, systems, definition);
 
   engine.mount({
     systems,
     inputHandler: new RaftInputHandler(view),
   });
 
-  const game = new RaftGame(engine, systems, definition, ui);
+  const game = new RaftGame(engine, systems, definition);
   engine.start();
   return game;
 }

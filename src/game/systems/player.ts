@@ -4,8 +4,8 @@
  * 职责：player 状态对象的所有权、移动物理（行走/跳跃/游泳/攀上木筏/重力/浮力）、
  * 二层天花板碰撞、生存数值衰减（口渴/饥饿/回血/死亡）、重生。
  *
- * 通信约定：死亡/重生提示走事件总线 core/events.ts；UI 数值刷新通过
- * ctx.onStatsChange（后续迁 zustand 时移除）。
+ * 通信约定：提示与 UI 数值刷新统一走事件总线 core/events.ts
+ * （statsChanged 每秒最多 4 次节流推送）。
  */
 
 import type { WorldView } from '../worldView';
@@ -31,7 +31,6 @@ export interface PlayerSystemContext {
   /** 动作级按键轮询（键位定义在 engine/inputMap.ts） */
   isActionDown: (action: GameAction) => boolean;
   getPointerLocked: () => boolean;
-  onStatsChange: (stats: PlayerStats) => void;
 }
 
 /**
@@ -278,7 +277,7 @@ export class PlayerSystem implements Tickable {
     this.statsPushTimer -= dt;
     if (this.statsPushTimer <= 0) {
       this.statsPushTimer = 0.25;
-      this.ctx.onStatsChange({ ...stats });
+      events.emit('statsChanged', { ...stats });
     }
   }
 
@@ -295,7 +294,7 @@ export class PlayerSystem implements Tickable {
     stats.hunger = 70;
     stats.thirst = 70;
     stats.isDead = false;
-    this.ctx.onStatsChange({ ...stats });
+    events.emit('statsChanged', { ...stats });
     events.emit('toast', { text: 'Respawned safely!', color: '#22c55e' });
   }
 
@@ -330,7 +329,6 @@ export function createPlayerSystem(w: WorldView): PlayerSystem {
     isActionDown: w.isActionDown,
     getPointerLocked: w.isPointerLocked,
     build: () => w.build(),
-    onStatsChange: (stats) => w.ui.onStatsChange(stats),
   });
 
   return system;

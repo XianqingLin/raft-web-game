@@ -3,6 +3,7 @@ import type { OceanEnvironment } from './ocean';
 import * as THREE from 'three';
 import { WeatherType } from '../../../types/game';
 import { soundManager } from '../../../audio/soundManager';
+import { events } from '../../../core/events';
 
 export interface WeatherSystem {
   currentWeather: WeatherType;
@@ -265,14 +266,14 @@ export function createWeather(w: WorldView, ocean: OceanEnvironment): WeatherSys
     ocean.hemiLight,
     () => w.camera.position,
     (newWeather) => {
-      w.ui.onWeatherChange?.(newWeather);
-      if (newWeather === 'LIGHT_FOG') {
-        w.toast('🌫️ A thick sea mist rolls across the ocean waters...', '#94a3b8');
-      } else if (newWeather === 'HEAVY_RAIN') {
-        w.toast('🌧️ A tropical storm strikes! Rough waves and rain!', '#38bdf8');
-      } else {
-        w.toast('☀️ The skies clear over the open sea.', '#fde047');
-      }
+      events.emit('weatherChanged', newWeather);
+      const toast =
+        newWeather === 'LIGHT_FOG'
+          ? { text: '🌫️ A thick sea mist rolls across the ocean waters...', color: '#94a3b8' }
+          : newWeather === 'HEAVY_RAIN'
+          ? { text: '🌧️ A tropical storm strikes! Rough waves and rain!', color: '#38bdf8' }
+          : { text: '☀️ The skies clear over the open sea.', color: '#fde047' };
+      events.emit('toast', toast);
     }
   );
 }

@@ -1,5 +1,6 @@
 import type { WorldView } from './worldView';
 import type { GameAction } from './engine/inputMap';
+import { events } from '../core/events';
 
 /**
  * 快捷键动作 -> 处理器（玩法层路由表，与 InteractionSystem 的 toolActions
@@ -10,7 +11,7 @@ import type { GameAction } from './engine/inputMap';
  * 由 PlayerSystem 每帧轮询 isActionDown，不进本表。
  */
 export const KEY_ACTION_HANDLERS: Partial<Record<GameAction, (w: WorldView) => void>> = {
-  toggleInventory: (w) => w.ui.onToggleInventory?.(),
+  toggleInventory: () => events.emit('toggleInventoryRequested', undefined),
   toggleBuild: (w) => w.build().toggleBuildMode(),
   rotatePiece: (w) => {
     if (w.build().isBuildMode) {

@@ -3,23 +3,16 @@ import { HotbarSlot, InventorySlot, ItemId, ResourceId, BuildingType } from '../
 import { ITEM_DEFINITIONS } from '../../data/items';
 import { CRAFTING_RECIPES } from '../../data/recipes';
 import { soundManager } from '../../audio/soundManager';
+import { events } from '../../core/events';
 import { PlayerState } from '../entities/player';
 
 /**
  * Inventory & Crafting System.
  * Extracted from engine.ts — owns hotbar/inventory slots, stacking,
  * cost handling and recipe crafting. Slot mutations push UI updates
- * through InventoryContext.callbacks.
+ * through the event bus (hotbarChanged / inventoryChanged).
  */
-export interface InventoryCallbacks {
-  onToast: (text: string, color?: string) => void;
-  onHotbarChange: (hotbar: HotbarSlot[], activeIdx: number) => void;
-  onInventoryChange: (inventory: InventorySlot[]) => void;
-  onStatsChange: (stats: PlayerState['stats']) => void;
-}
-
 export interface InventoryContext {
-  callbacks: InventoryCallbacks;
   player: () => PlayerState;
   /** Recipe targets a building: engine enters build mode pre-selected. */
   onReadyToBuild: (building: BuildingType) => void;
@@ -46,21 +39,25 @@ export class InventorySystem {
   }));
 
   private ctx: InventoryContext;
-  private callbacks: InventoryCallbacks;
 
   constructor(ctx: InventoryContext) {
     this.ctx = ctx;
-    this.callbacks = ctx.callbacks;
   }
 
   private get player(): PlayerState {
     return this.ctx.player();
   }
 
+  /** 快捷栏与背包总是成对变化，统一推送一次快照 */
+  private emitInventoryChanged() {
+    events.emit('hotbarChanged', { hotbar: [...this.hotbar], activeIdx: this.activeHotbarIdx });
+    events.emit('inventoryChanged', [...this.inventory]);
+  }
+
   public setActiveHotbarSlot(idx: number) {
     if (idx < 0 || idx >= this.hotbar.length) return;
     this.activeHotbarIdx = idx;
-    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
+    this.emitInventoryChanged();
     this.ctx.onToolSlotChanged(this.hotbar[idx].itemId ?? null);
   }
 
@@ -116,8 +113,7 @@ export class InventorySystem {
       }
     }
 
-    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-    this.callbacks.onInventoryChange([...this.inventory]);
+    this.emitInventoryChanged();
     return remaining === 0;
   }
 
@@ -165,8 +161,7 @@ export class InventorySystem {
         }
       }
     }
-    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-    this.callbacks.onInventoryChange([...this.inventory]);
+    this.emitInventoryChanged();
   }
 
   public craftRecipe(recipeId: string): boolean {
@@ -174,7 +169,7 @@ export class InventorySystem {
     if (!recipe) return false;
 
     if (!this.canAfford(recipe.cost)) {
-      this.callbacks.onToast('Missing materials!', '#ef4444');
+      events.emit('toast', { text: 'Missing materials!', color: '#ef4444' });
       return false;
     }
 
@@ -184,12 +179,12 @@ export class InventorySystem {
       this.addItemToInventory(recipe.targetItem, 1);
       soundManager.playCraft();
       const def = ITEM_DEFINITIONS[recipe.targetItem];
-      this.callbacks.onToast(`Crafted ${def?.name || 'Item'}!`, '#22c55e');
+      events.emit('toast', { text: `Crafted ${def?.name || 'Item'}!`, color: '#22c55e' });
     } else if (recipe.targetBuilding) {
       // Auto-switch to building mode with this item
       this.ctx.onReadyToBuild(recipe.targetBuilding);
       soundManager.playCraft();
-      this.callbacks.onToast(`Ready to build ${recipe.name}!`, '#38bdf8');
+      events.emit('toast', { text: `Ready to build ${recipe.name}!`, color: '#38bdf8' });
     }
     return true;
   }
@@ -213,7 +208,7 @@ export class InventorySystem {
       itemId === 'egg'
     ) {
       if (this.player.stats.hunger >= 98 && itemId !== 'coconut' && itemId !== 'berry') {
-        this.callbacks.onToast("You're already full! (Hunger 100%)", '#94a3b8');
+        events.emit('toast', { text: "You're already full! (Hunger 100%)", color: '#94a3b8' });
         return false;
       }
 
@@ -266,26 +261,24 @@ export class InventorySystem {
       if (slot.count <= 0) slot.itemId = null;
 
       soundManager.playEat();
-      this.callbacks.onToast(`Ate ${name}! (+${hungerBonus} Hunger${healthBonus ? `, +${healthBonus} HP` : ''})`, '#22c55e');
-      this.callbacks.onStatsChange({ ...this.player.stats });
-      this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-      this.callbacks.onInventoryChange([...this.inventory]);
+      events.emit('toast', { text: `Ate ${name}! (+${hungerBonus} Hunger${healthBonus ? `, +${healthBonus} HP` : ''})`, color: '#22c55e' });
+      events.emit('statsChanged', { ...this.player.stats });
+      this.emitInventoryChanged();
       return true;
     }
 
     // 2. Drinks
     if (itemId === 'cup_freshwater') {
       if (this.player.stats.thirst >= 98) {
-        this.callbacks.onToast("You're already fully hydrated! (Thirst 100%)", '#94a3b8');
+        events.emit('toast', { text: "You're already fully hydrated! (Thirst 100%)", color: '#94a3b8' });
         return false;
       }
       this.player.stats.thirst = Math.min(100, this.player.stats.thirst + 45);
       slot.itemId = 'cup_empty';
       soundManager.playDrink();
-      this.callbacks.onToast('Drank pure freshwater! (+45 Thirst)', '#38bdf8');
-      this.callbacks.onStatsChange({ ...this.player.stats });
-      this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-      this.callbacks.onInventoryChange([...this.inventory]);
+      events.emit('toast', { text: 'Drank pure freshwater! (+45 Thirst)', color: '#38bdf8' });
+      events.emit('statsChanged', { ...this.player.stats });
+      this.emitInventoryChanged();
       return true;
     }
 
@@ -299,8 +292,8 @@ export class InventorySystem {
 
     slot.itemId = 'cup_saltwater';
     soundManager.playWaterSplash(0.9);
-    this.callbacks.onToast('Gathered Cup of Ocean Saltwater', '#38bdf8');
-    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
+    events.emit('toast', { text: 'Gathered Cup of Ocean Saltwater', color: '#38bdf8' });
+    this.emitInventoryChanged();
     return true;
   }
 
@@ -310,12 +303,6 @@ export class InventorySystem {
 
 export function createInventorySystem(w: WorldView): InventorySystem {
   return new InventorySystem({
-    callbacks: {
-      onToast: w.toast,
-      onHotbarChange: (hotbar, activeIdx) => w.ui.onHotbarChange(hotbar, activeIdx),
-      onInventoryChange: (inv) => w.ui.onInventoryChange(inv),
-      onStatsChange: (stats) => w.ui.onStatsChange(stats),
-    },
     player: () => w.player().localPlayer,
     onReadyToBuild: (building) => w.build().enterBuildMode(building),
     onToolSlotChanged: (itemId) => {

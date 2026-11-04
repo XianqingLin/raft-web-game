@@ -4,6 +4,7 @@ import { PlacedStructure, ItemId } from '../../types/game';
 import { SharkData } from '../entities/shark';
 import { SharkSpawnDef } from '../../data/gameDefinition';
 import { soundManager } from '../../audio/soundManager';
+import { events } from '../../core/events';
 import { BLOCK_SIZE } from '../visuals/shared';
 import { createSharkMesh, applySharkSkin, createSharkMeatMesh } from '../visuals/shark';
 import { PlayerState } from '../entities/player';
@@ -19,21 +20,12 @@ import { OCEAN_DRIFT_BASE } from './environment/ocean';
  * （tickShark / spearThrust 逐实体判定）。sharkDefeatedOnce 是世界级进度
  * 标记（皮肤与剧情分支），不属于任何单条鲨鱼。
  */
-export interface SharkCallbacks {
-  onToast: (text: string, color?: string) => void;
-  onSharkAlert: (alerting: boolean) => void;
-  onSharkDataChange?: (shark: SharkData) => void;
-  onStatsChange: (stats: PlayerStatsLike) => void;
-}
-type PlayerStatsLike = PlayerState['stats'];
-
 export interface SharkContext {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   player: () => PlayerState;
   structures: Map<string, PlacedStructure>;
   raftGroup: THREE.Group;
-  callbacks: SharkCallbacks;
   addItemToInventory: (itemId: ItemId, count?: number) => boolean;
   saveWorld: (notify?: boolean) => void;
   getHookState: () => string;
@@ -66,7 +58,6 @@ export class SharkSystem implements Tickable {
   private camera: THREE.PerspectiveCamera;
   private structures: Map<string, PlacedStructure>;
   private raftGroup: THREE.Group;
-  private callbacks: SharkCallbacks;
   private addItemToInventory: (itemId: ItemId, count?: number) => boolean;
   private saveWorld: (notify?: boolean) => void;
 
@@ -76,7 +67,6 @@ export class SharkSystem implements Tickable {
     this.camera = ctx.camera;
     this.structures = ctx.structures;
     this.raftGroup = ctx.raftGroup;
-    this.callbacks = ctx.callbacks;
     this.addItemToInventory = ctx.addItemToInventory;
     this.saveWorld = ctx.saveWorld;
   }
@@ -253,9 +243,9 @@ export class SharkSystem implements Tickable {
         shark.pos.y = -0.35;
         if (this.sharkDefeatedOnce) {
           applySharkSkin(sharkMesh, true);
-          this.callbacks.onToast('🩸 The Enraged Blood Bruce has returned to circle the raft...', '#ef4444');
+          events.emit('toast', { text: '🩸 The Enraged Blood Bruce has returned to circle the raft...', color: '#ef4444' });
         } else {
-          this.callbacks.onToast('🦈 Bruce has recovered and returned to circle the raft...', '#f59e0b');
+          events.emit('toast', { text: '🦈 Bruce has recovered and returned to circle the raft...', color: '#f59e0b' });
         }
       }
     } else {
@@ -264,13 +254,13 @@ export class SharkSystem implements Tickable {
         this.player.waterTime += dt;
         if (this.player.waterTime > 3.0) {
           shark.state = 'ATTACKING_PLAYER';
-          this.callbacks.onSharkAlert(true);
+          events.emit('sharkAlertChanged', true);
         }
       } else {
         this.player.waterTime = 0;
         if (shark.state === 'ATTACKING_PLAYER') {
           shark.state = 'CIRCLING';
-          this.callbacks.onSharkAlert(false);
+          events.emit('sharkAlertChanged', false);
         }
       }
 
@@ -298,15 +288,15 @@ export class SharkSystem implements Tickable {
             shark.targetPlankKey = target.id;
             shark.state = 'ATTACKING_RAFT';
             shark.biteTimer = 0;
-            this.callbacks.onSharkAlert(true);
-            this.callbacks.onToast('SHARK ATTACK! Bruce is biting your raft foundation! Jab with Spear!', '#ef4444');
+            events.emit('sharkAlertChanged', true);
+            events.emit('toast', { text: 'SHARK ATTACK! Bruce is biting your raft foundation! Jab with Spear!', color: '#ef4444' });
           }
         }
       } else if (shark.state === 'ATTACKING_RAFT') {
         const targetPlank = this.structures.get(shark.targetPlankKey || '');
         if (!targetPlank) {
           shark.state = 'CIRCLING';
-          this.callbacks.onSharkAlert(false);
+          events.emit('sharkAlertChanged', false);
           return;
         }
 
@@ -333,8 +323,8 @@ export class SharkSystem implements Tickable {
             this.raftGroup.remove(targetPlank.mesh);
             this.structures.delete(targetPlank.id);
             shark.state = 'CIRCLING';
-            this.callbacks.onSharkAlert(false);
-            this.callbacks.onToast('Bruce destroyed a raft plank!', '#ef4444');
+            events.emit('sharkAlertChanged', false);
+            events.emit('toast', { text: 'Bruce destroyed a raft plank!', color: '#ef4444' });
           }
         }
       } else if (shark.state === 'ATTACKING_PLAYER') {
@@ -349,8 +339,8 @@ export class SharkSystem implements Tickable {
         } else {
           this.player.stats.health -= 25 * dt;
           soundManager.playSharkBite();
-          this.callbacks.onToast('BRUCE BIT YOU! (-25 Health)', '#ef4444');
-          this.callbacks.onStatsChange({ ...this.player.stats });
+          events.emit('toast', { text: 'BRUCE BIT YOU! (-25 Health)', color: '#ef4444' });
+          events.emit('statsChanged', { ...this.player.stats });
         }
       }
     }
@@ -390,7 +380,7 @@ export class SharkSystem implements Tickable {
     this.uiPushTimer = 0.25;
 
     const primary = this.primaryShark();
-    if (primary) this.callbacks.onSharkDataChange?.({ ...primary });
+    if (primary) events.emit('sharkDataChanged', { ...primary });
   }
 
   /** 当前"主"鲨鱼：离玩家最近的一条（单鲨时即唯一那条） */
@@ -453,7 +443,7 @@ export class SharkSystem implements Tickable {
     if (shark.health <= 0) {
       shark.state = 'FLEEING';
       shark.fleeTimer = 60; // Flees for 60 seconds
-      this.callbacks.onSharkAlert(false);
+      events.emit('sharkAlertChanged', false);
 
       // Spawn floating Prime Shark Meat in the ocean!
       this.spawnSharkMeat(shark.pos.x, shark.pos.z);
@@ -463,21 +453,21 @@ export class SharkSystem implements Tickable {
         this.sharkDefeatedOnce = true;
         for (const inst of this.instances) applySharkSkin(inst.mesh, true);
         this.saveWorld(false);
-        this.callbacks.onToast('🩸 BRUCE DEFEATED! Prime Shark Meat dropped into the sea! Transforms into the BLOOD SHARK!', '#ef4444');
+        events.emit('toast', { text: '🩸 BRUCE DEFEATED! Prime Shark Meat dropped into the sea! Transforms into the BLOOD SHARK!', color: '#ef4444' });
         soundManager.playAchievementUnlocked();
       } else {
-        this.callbacks.onToast('🥩 Bruce defeated! Slabs of Prime Shark Meat floated to the surface!', '#22c55e');
+        events.emit('toast', { text: '🥩 Bruce defeated! Slabs of Prime Shark Meat floated to the surface!', color: '#22c55e' });
       }
     } else {
       // Interrupt shark attack on raft or player!
       if (shark.state === 'ATTACKING_RAFT') {
         shark.state = 'CIRCLING';
-        this.callbacks.onSharkAlert(false);
+        events.emit('sharkAlertChanged', false);
       }
       const hitsNeeded = Math.ceil(shark.health / damage);
-      this.callbacks.onToast(`🦈 Pierced Bruce! (${Math.round(shark.health)}/100 HP - ${hitsNeeded} more hit${hitsNeeded > 1 ? 's' : ''} to flee)`, '#ef4444');
+      events.emit('toast', { text: `🦈 Pierced Bruce! (${Math.round(shark.health)}/100 HP - ${hitsNeeded} more hit${hitsNeeded > 1 ? 's' : ''} to flee)`, color: '#ef4444' });
     }
-    this.callbacks.onSharkDataChange?.({ ...shark });
+    events.emit('sharkDataChanged', { ...shark });
   }
 
   private flashSharkDamage(sharkMesh: THREE.Group) {
@@ -525,7 +515,7 @@ export class SharkSystem implements Tickable {
       const dist = this.player.pos.distanceTo(meat.pos);
       if (dist < 2.5) {
         this.addItemToInventory('shark_meat', 1);
-        this.callbacks.onToast('🥩 Collected Prime Shark Meat slab! (+1 Shark Meat)', '#22c55e');
+        events.emit('toast', { text: '🥩 Collected Prime Shark Meat slab! (+1 Shark Meat)', color: '#22c55e' });
         soundManager.playItemCollect();
         this.scene.remove(meat.mesh);
         this.floatingMeatList.splice(i, 1);
@@ -539,7 +529,7 @@ export class SharkSystem implements Tickable {
       ) {
         meat.caught = true;
         this.addItemToInventory('shark_meat', 1);
-        this.callbacks.onToast('🥩 Hooked Prime Shark Meat slab from the deep!', '#22c55e');
+        events.emit('toast', { text: '🥩 Hooked Prime Shark Meat slab from the deep!', color: '#22c55e' });
         soundManager.playItemCollect();
         this.scene.remove(meat.mesh);
         this.floatingMeatList.splice(i, 1);
@@ -563,12 +553,6 @@ export function createSharkSystem(w: WorldView): SharkSystem {
     player: () => w.player().localPlayer,
     structures: w.build().structures,
     raftGroup: w.build().raftGroup,
-    callbacks: {
-      onToast: w.toast,
-      onSharkAlert: (alerting) => w.ui.onSharkAlert(alerting),
-      onSharkDataChange: (shark) => w.ui.onSharkDataChange?.(shark),
-      onStatsChange: (stats) => w.ui.onStatsChange(stats),
-    },
     addItemToInventory: (itemId, count) => w.inventory().addItemToInventory(itemId, count),
     saveWorld: (notify) => w.saveWorld(notify),
     getHookState: () => w.hook().hookState,

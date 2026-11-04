@@ -5,8 +5,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createRaftGame, RaftGame } from './game/raftGame';
-import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, WeatherType } from './types/game';
-import { SharkData } from './game/entities/shark';
+import { BuildingType } from './types/game';
 import { HUD } from './ui/components/HUD';
 import { InventoryCraftingModal } from './ui/components/InventoryCraftingModal';
 import { PauseMenu } from './ui/components/PauseMenu';
@@ -17,71 +16,34 @@ export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<RaftGame | null>(null);
 
-  // React State mirrored from engine
-  const [stats, setStats] = useState<PlayerStats>({
-    health: 100,
-    maxHealth: 100,
-    hunger: 90,
-    maxHunger: 100,
-    thirst: 90,
-    maxThirst: 100,
-    isDead: false,
-  });
+  // 游戏数据快照：由事件桥接进 uiStore，React 只订阅不镜像
+  const stats = useUiStore((s) => s.stats);
+  const hotbar = useUiStore((s) => s.hotbar);
+  const activeHotbarIdx = useUiStore((s) => s.activeHotbarIdx);
+  const inventory = useUiStore((s) => s.inventory);
+  const shark = useUiStore((s) => s.shark);
+  const interactPrompt = useUiStore((s) => s.interactPrompt);
+  const sharkAlert = useUiStore((s) => s.sharkAlert);
+  const dayCount = useUiStore((s) => s.dayCount);
+  const timeStr = useUiStore((s) => s.timeStr);
+  const dayProgress = useUiStore((s) => s.dayProgress);
+  const weather = useUiStore((s) => s.weather);
+  const activeChest = useUiStore((s) => s.activeChest);
 
-  const [hotbar, setHotbar] = useState<HotbarSlot[]>([
-    { itemId: 'hook', count: 1, durability: 50 },
-    { itemId: 'hammer', count: 1, durability: 100 },
-    { itemId: 'spear', count: 1, durability: 40 },
-    { itemId: 'cup_empty', count: 1 },
-    { itemId: 'wood', count: 6 },
-    { itemId: 'plastic', count: 6 },
-    { itemId: 'leaf', count: 4 },
-    { itemId: null, count: 0 },
-  ]);
-  const [activeHotbarIdx, setActiveHotbarIdx] = useState(0);
+  // Toasts 由事件总线 (core/events.ts) 驱动，桥接见 ui/uiStore.ts
+  const toasts = useUiStore((s) => s.toasts);
 
-  const [inventory, setInventory] = useState<InventorySlot[]>(
-    Array.from({ length: 16 }, () => ({ itemId: null, count: 0 }))
-  );
-
-  const [sharkData, setSharkData] = useState<SharkData>({
-    health: 100,
-    maxHealth: 100,
-    state: 'CIRCLING',
-    pos: { x: 20, y: -0.4, z: 0 },
-    targetPos: { x: 20, y: -0.4, z: 0 },
-    angle: 0,
-    circleRadius: 18,
-    speed: 3.5,
-    targetPlankKey: null,
-    biteTimer: 0,
-    fleeTimer: 0,
-    inWaterAttackTimer: 0,
-  });
-
-  const [interactPrompt, setInteractPrompt] = useState<string | null>(null);
-  const [sharkAlert, setSharkAlert] = useState(false);
-  const [hookState, setHookState] = useState<string>('IDLE');
-  const [hookPower, setHookPower] = useState(0);
-
-  // UI Modals & Overlays
+  // UI Modals & Overlays（弹窗开关是 UI 自己的状态；指针锁副作用留在 App）
   const [isPointerLocked, setIsPointerLocked] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
-  const [activeChest, setActiveChest] = useState<PlacedStructure | null>(null);
+  const [hookState, setHookState] = useState<string>('IDLE');
+  const [hookPower, setHookPower] = useState(0);
   const [isBuildMode, setIsBuildMode] = useState(false);
   const [isDemolishMode, setIsDemolishMode] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState<BuildingType>('foundation');
-
-  // Time / Day & Weather
-  const [dayCount, setDayCount] = useState(1);
-  const [timeStr, setTimeStr] = useState('06:00');
-  const [dayProgress, setDayProgress] = useState(0.25);
-  const [weather, setWeather] = useState<WeatherType>('CLEAR');
-
   const [sharkDefeatedOnce, setSharkDefeatedOnce] = useState(false);
 
-  // Toasts 由事件总线 (core/events.ts) 驱动，store 见 ui/uiStore.ts
-  const toasts = useUiStore((s) => s.toasts);
+  const setActiveChest = useUiStore((s) => s.setActiveChest);
 
   const toggleInventory = useCallback(() => {
     setIsInventoryOpen((prev) => {
@@ -99,28 +61,7 @@ export default function App() {
   useEffect(() => {
     if (!canvasMountRef.current) return;
 
-    const game = createRaftGame(canvasMountRef.current, {
-      onStatsChange: (newStats) => setStats(newStats),
-      onHotbarChange: (newHotbar, activeIdx) => {
-        setHotbar(newHotbar);
-        setActiveHotbarIdx(activeIdx);
-      },
-      onInventoryChange: (newInv) => setInventory(newInv),
-      onInteractPrompt: (prompt) => setInteractPrompt(prompt),
-      onSharkAlert: (alerting) => setSharkAlert(alerting),
-      onSharkDataChange: (newShark) => setSharkData(newShark),
-      onOpenChest: (chest) => {
-        setActiveChest(chest);
-        document.exitPointerLock?.();
-      },
-      onTimeChange: (day, time, prog) => {
-        setDayCount(day);
-        setTimeStr(time);
-        setDayProgress(prog);
-      },
-      onWeatherChange: (newWeather) => setWeather(newWeather),
-      onToggleInventory: () => toggleInventory(),
-    });
+    const game = createRaftGame(canvasMountRef.current);
 
     gameRef.current = game;
 
@@ -138,6 +79,14 @@ export default function App() {
     // Build selection now arrives via the event bus (core/events.ts)
     const offBuildingSelect = events.on('buildingSelected', ({ type }) => setSelectedBuilding(type));
 
+    // 请求类事件：开箱需要退出指针锁（数据写入由 uiStore 桥接完成）
+    const offOpenChest = events.on('openChestRequested', () => {
+      document.exitPointerLock?.();
+    });
+
+    // 背包快捷键（I / Tab）经 inputActions 发出 toggleInventoryRequested
+    const offToggleInventory = events.on('toggleInventoryRequested', () => toggleInventory());
+
     // 高频 HUD 值由 Raft 门面统一采样，React 不接触具体系统。
     const pollInterval = window.setInterval(() => {
       const current = gameRef.current;
@@ -151,12 +100,11 @@ export default function App() {
       setSharkDefeatedOnce(hud.sharkDefeatedOnce);
     }, 50);
 
-    // 背包快捷键（I / Tab）统一由 RaftInputHandler 经 engine/inputMap.ts
-    // 分发到 onToggleInventory 回调——此处不再挂全局 keydown，避免双触发。
-
     return () => {
       window.clearInterval(pollInterval);
       offBuildingSelect();
+      offOpenChest();
+      offToggleInventory();
       document.removeEventListener('pointerlockchange', onPointerLockChange);
       game.dispose();
     };
@@ -180,7 +128,6 @@ export default function App() {
     }
 
     gameRef.current?.commands.selectHotbarSlot(idx);
-    setActiveHotbarIdx(idx);
   };
 
   const handleSelectBuilding = (b: BuildingType) => {
@@ -229,7 +176,7 @@ export default function App() {
         onSelectSlot={handleSelectSlot}
         interactPrompt={interactPrompt}
         sharkAlert={sharkAlert}
-        shark={sharkData}
+        shark={shark}
         hookState={hookState}
         hookPower={hookPower}
         isBuildMode={isBuildMode}
