@@ -25,10 +25,6 @@ export interface GameEvents {
   toast: { text: string; color?: string };
   /** 玩家选中了一个建筑类型（建造面板 / 滚轮切换）。payload: 建筑类型 */
   buildingSelected: { type: BuildingType };
-  /** 一个结构被放置（含存档重建）。payload: 放置后的结构 */
-  structurePlaced: { structure: PlacedStructure };
-  /** 一个结构被拆除。payload: 结构 id（鲨鱼咬板也走此事件） */
-  structureDemolished: { id: string };
   /** 玩家生存数值快照（系统修改 stats 后推送） */
   statsChanged: PlayerStats;
   /** 快捷栏变化。payload: 槽位数组副本与当前选中索引 */

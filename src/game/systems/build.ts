@@ -4,9 +4,8 @@
  * 职责：结构唯一所有权（structures Map + raftGroup）、放置/拆除、建造模式
  * 状态与幽灵网格、结构支撑/碰撞/脚下高度查询、结构序列化。
  *
- * 通信约定：对外提示一律 events.emit('toast')；结构变更广播
- * structurePlaced / structureDemolished / buildingSelected 事件（core/events.ts），
- * 不持有任何 UI 回调。
+ * 通信约定：对外提示一律 events.emit('toast')；建造面板选中广播
+ * buildingSelected 事件（core/events.ts），不持有任何 UI 回调。
  */
 
 import type { WorldView } from '../worldView';
@@ -282,8 +281,6 @@ export class BuildSystem implements Tickable {
       this.ctx.onSave();
     }
 
-    events.emit('structurePlaced', { structure: placed });
-
     // Update sail bonus
     this.updateSailSpeed();
     return true;
@@ -320,7 +317,6 @@ export class BuildSystem implements Tickable {
     this.structures.delete(target.id);
     soundManager.playHammerBuild();
     events.emit('toast', { text: `Demolished ${def?.name || 'Structure'} (+Refund)`, color: '#f59e0b' });
-    events.emit('structureDemolished', { id: target.id });
 
     this.ctx.onSave();
 
