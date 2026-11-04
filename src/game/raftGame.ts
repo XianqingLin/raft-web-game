@@ -15,7 +15,8 @@ import {
 } from './systems';
 import type { BuildSystem } from './systems/build';
 import type { DebrisSystem } from './systems/debris';
-import type { OceanEnvironment, OceanTuning } from './systems/environment/ocean';
+import type { OceanEnvironment } from './systems/environment/ocean';
+import type { OceanTuning } from './systems/environment/waveform';
 import type { WeatherSystem } from './systems/environment/weather';
 import type { WindDebugState, WindSystem } from './systems/environment/wind';
 import type { HookState, HookSystem } from './systems/hook';

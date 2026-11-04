@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { RaftGame } from '../../game/raftGame';
-import type { OceanTuning } from '../../game/systems/environment/ocean';
+import type { OceanTuning } from '../../game/systems/environment/waveform';
 import type { WindDebugState } from '../../game/systems/environment/wind';
 import type { WeatherType } from '../../types/game';
 
