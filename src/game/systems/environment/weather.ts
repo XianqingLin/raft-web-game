@@ -1,14 +1,29 @@
 import type { WorldView } from '../../worldView';
 import type { OceanEnvironment } from './ocean';
+import type { WindState } from './wind';
 import * as THREE from 'three';
 import { WeatherType } from '../../../types/game';
 import { soundManager } from '../../../audio/soundManager';
 import { events } from '../../../core/events';
 
+/**
+ * 天气不是自主系统：由风+湿度派生（风是唯一源头，见 wind.ts 头注释）。
+ * 派生判据全部带迟滞（进入/退出阈值分离 + 持续时间要求），防止在阈值
+ * 边缘抖动；调试面板的"选天气"= 强制工况（拨动风与湿度）+ 覆盖保持期。
+ */
+
+export interface WindDependency {
+  getWindState: () => WindState;
+  getWindVector: () => { x: number; z: number };
+  forceCondition: (type: WeatherType) => void;
+}
+
 export interface WeatherSystem {
   currentWeather: WeatherType;
   update: (dt: number, elapsed: number) => void;
   setWeather: (type: WeatherType) => void;
+  /** 【仅调试】天气自调节开关：关闭后天气冻结在手动选择 */
+  setAuto: (on: boolean) => void;
   getWaveHeightMultiplier: () => number;
   getWaveSpeedMultiplier: () => number;
   getOceanColor: () => THREE.Color;
@@ -25,18 +40,26 @@ export function createWeatherSystem(
   getCameraPos: () => THREE.Vector3,
   /** 水面高度采样（水花圆环贴合波形；来自 OceanEnvironment.getWaveHeightAt） */
   getWaveHeightAt: (x: number, z: number) => number,
+  /** 风依赖（天气派生的唯一上游） */
+  wind: WindDependency,
   onWeatherChange?: (weather: WeatherType) => void
 ): WeatherSystem {
   let currentWeather: WeatherType = 'CLEAR';
   let targetWeather: WeatherType = 'CLEAR';
-  let weatherTimer = 85 + Math.random() * 45; // Changes every 85-130 seconds
   let transitionProgress = 1.0; // 0..1 blend
+
+  // —— 风→天气派生状态（迟滞判据）——
+  let weatherAuto = true; // 关闭后天气冻结在手动选择，派生暂停
+  let overrideHold = 0; // 强制天气的保持期（秒），期间暂停派生
+  let stormIn = 0;
+  let stormOut = 0;
+  let fogIn = 0;
+  let fogOut = 0;
 
   // ==================== GPU 雨丝（LineSegments，细长半透明 streak，下落/风漂/相机环绕全在 shader 内） ====================
   const rainCount = 7000;
   const rainArea = 56; // 相机周围 XZ 覆盖范围（世界单位）
   const rainTop = 30; // 雨幕顶部高度
-  const rainWind = new THREE.Vector2(-2.5, 1.6); // 水平风漂（世界单位/秒），略带倾斜
 
   const rainGeo = new THREE.BufferGeometry();
   // position 仅用于确定绘制数量，真实位置在顶点着色器里由种子推导
@@ -63,7 +86,8 @@ export function createWeatherSystem(
     uTime: { value: 0 },
     uArea: { value: rainArea },
     uTop: { value: rainTop },
-    uWind: { value: rainWind },
+    // 雨丝水平风漂：每帧同步真实风向量（WindSystem），雨的倾斜方向与风一致
+    uWind: { value: new THREE.Vector2(-2.5, 1.6) },
     uOpacity: { value: 0 },
     uColor: { value: new THREE.Color(0xf5faff) },
   };
@@ -247,7 +271,8 @@ void main() {
   let waveHeightMult = 1.0;
   let waveSpeedMult = 1.0;
 
-  const setWeather = (type: WeatherType) => {
+  /** 内部唯一切换点：平滑过渡 + 事件广播 */
+  const applyWeather = (type: WeatherType) => {
     if (type === currentWeather) return;
     targetWeather = type;
     currentWeather = type;
@@ -255,30 +280,56 @@ void main() {
     onWeatherChange?.(type);
   };
 
+  /**
+   * 外部设置天气。自调节开启 = 强制工况（拨风与湿度，25s 后交还派生）；
+   * 自调节关闭 = 天气冻结在手动选择，直接切换、不碰风。
+   */
+  const setWeather = (type: WeatherType) => {
+    if (weatherAuto) {
+      wind.forceCondition(type);
+      overrideHold = 25;
+    }
+    applyWeather(type);
+  };
+
+  const setAuto = (on: boolean) => {
+    weatherAuto = on;
+    if (on) overrideHold = 0; // 立即交还派生（判据的持续时间要求天然防跳变）
+  };
+
+  /** 风→天气派生：判据全带迟滞（进入/退出阈值分离 + 持续时间） */
+  const deriveFromWind = (dt: number) => {
+    if (!weatherAuto || overrideHold > 0) {
+      if (overrideHold > 0) overrideHold -= dt;
+      return;
+    }
+    const ws = wind.getWindState();
+
+    const enterStorm = ws.speed > 4.4 && ws.humidity > 0.45;
+    stormIn = enterStorm ? stormIn + dt : 0;
+    stormOut = !enterStorm && ws.speed < 3.6 ? stormOut + dt : 0;
+
+    const enterFog = ws.speed < 1.3 && ws.humidity > 0.55;
+    fogIn = enterFog ? fogIn + dt : 0;
+    fogOut = !enterFog && (ws.speed > 1.8 || ws.humidity < 0.4) ? fogOut + dt : 0;
+
+    // 强风低湿 → 大风晴天（无雨但浪涌流急），是这套派生的多样性的来源
+    if (currentWeather === 'HEAVY_RAIN' && stormOut >= 15) {
+      applyWeather('CLEAR');
+    } else if (currentWeather !== 'HEAVY_RAIN' && stormIn >= 8) {
+      applyWeather('HEAVY_RAIN');
+    } else if (currentWeather === 'LIGHT_FOG' && fogOut >= 12) {
+      applyWeather('CLEAR');
+    } else if (currentWeather === 'CLEAR' && fogIn >= 10) {
+      applyWeather('LIGHT_FOG');
+    }
+  };
+
   const update = (dt: number) => {
     const cameraPos = getCameraPos();
 
-    // 1. Weather timer update
-    weatherTimer -= dt;
-    if (weatherTimer <= 0) {
-      // Pick a new randomized weather
-      const choices: WeatherType[] = ['CLEAR', 'LIGHT_FOG', 'HEAVY_RAIN'];
-      // Weigh clear 50%, fog 25%, rain 25%
-      const r = Math.random();
-      let next: WeatherType = 'CLEAR';
-      if (r < 0.45) next = 'CLEAR';
-      else if (r < 0.72) next = 'LIGHT_FOG';
-      else next = 'HEAVY_RAIN';
-
-      if (next === currentWeather) {
-        // cycle to another to ensure interesting variety
-        const others = choices.filter((w) => w !== currentWeather);
-        next = others[Math.floor(Math.random() * others.length)];
-      }
-
-      setWeather(next);
-      weatherTimer = 75 + Math.random() * 60; // 75 - 135 seconds per weather pattern
-    }
+    // 1. 天气派生：风是唯一上游（强风高湿→暴雨，静风高湿→雾，其余晴）
+    deriveFromWind(dt);
 
     // 2. Smooth weather transitions
     if (transitionProgress < 1.0) {
@@ -338,6 +389,8 @@ void main() {
 
     // 3. Rain simulation —— GPU 雨丝只推进时间和淡入淡出，CPU 零逐粒子开销
     rainUniforms.uTime.value += dt;
+    const windVec = wind.getWindVector();
+    rainUniforms.uWind.value.set(windVec.x, windVec.z);
     rainUniforms.uOpacity.value = THREE.MathUtils.lerp(
       rainUniforms.uOpacity.value,
       targetRainOpacity,
@@ -419,6 +472,7 @@ void main() {
     },
     update,
     setWeather,
+    setAuto,
     getWaveHeightMultiplier: () => waveHeightMult,
     getWaveSpeedMultiplier: () => waveSpeedMult,
     getOceanColor: () => currentOceanColor,
@@ -437,6 +491,11 @@ export function createWeather(w: WorldView, ocean: OceanEnvironment): WeatherSys
     ocean.hemiLight,
     () => w.camera.position,
     ocean.getWaveHeightAt,
+    {
+      getWindState: () => w.wind().getWindState(),
+      getWindVector: () => w.wind().getWindVector(),
+      forceCondition: (type) => w.wind().forceCondition(type),
+    },
     (newWeather) => {
       events.emit('weatherChanged', newWeather);
       const toast =

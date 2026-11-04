@@ -17,6 +17,7 @@ import type { BuildSystem } from './systems/build';
 import type { DebrisSystem } from './systems/debris';
 import type { OceanEnvironment, OceanTuning } from './systems/environment/ocean';
 import type { WeatherSystem } from './systems/environment/weather';
+import type { WindDebugState, WindSystem } from './systems/environment/wind';
 import type { HookState, HookSystem } from './systems/hook';
 import type { InteractionSystem } from './systems/interact';
 import type { InventorySystem } from './systems/inventory';
@@ -47,18 +48,37 @@ export interface RaftGameCommands {
   respawn(): void;
   saveWorld(notify?: boolean): WorldSaveData;
   resetWorld(): void;
-  /** 海面调参（调试面板用）：读取副本 / 合并写入 / 恢复默认 */
+}
+
+/**
+ * 调试命令（仅开发期调试面板消费）。
+ *
+ * 上线摘除调试时的清单：删除本接口与 RaftGame.debug 赋值块、
+ * 删除 OceanDebugPanel.tsx、删除 App.tsx 的挂载分支。
+ * 系统侧的 getDebugState/setManualWind/setAuto/getTuning 等出口保留不动。
+ */
+export interface RaftGameDebugCommands {
+  /** 海面调参：读取副本 / 合并写入 / 恢复默认 */
   getOceanTuning(): OceanTuning;
   setOceanTuning(partial: Partial<OceanTuning>): void;
   resetOceanTuning(): void;
-  /** 天气（调试面板用）：立即切换并平滑过渡 */
+  /** 天气：立即切换（自调节开 = 强制工况，关 = 直接冻结） */
   getWeather(): WeatherType;
   setWeather(type: WeatherType): void;
+  /** 天气自调节开关：关闭后天气冻结在手动选择 */
+  setWeatherAuto(on: boolean): void;
+  /** 风/海流：实时读数、自调节开关与手动风向风速 */
+  getWindDebug(): WindDebugState;
+  setWindAuto(on: boolean): void;
+  /** 手动风向（0°=正北）与风速（m/s）；自调节关闭时生效 */
+  setManualWind(dirDeg: number, speed: number): void;
 }
 
 /** 已完整组装的 Raft 应用。具体系统知识集中在这个应用门面和组合根。 */
 export class RaftGame {
   public readonly commands: RaftGameCommands;
+  /** 调试命令（仅开发期调试面板消费；上线摘除时随接口注释的清单一起删） */
+  public readonly debug: RaftGameDebugCommands;
 
   constructor(
     private engine: GameEngine,
@@ -90,6 +110,10 @@ export class RaftGame {
       resetWorld: () => {
         resetRaftWorld(this.systems, this.definition);
       },
+    };
+
+    // —— 调试命令块（上线摘除调试时整块删除，见 RaftGameDebugCommands 注释）——
+    this.debug = {
       getOceanTuning: () => {
         return this.systems.get<OceanEnvironment>(SYS.ocean).getTuning();
       },
@@ -104,6 +128,18 @@ export class RaftGame {
       },
       setWeather: (type) => {
         this.systems.get<WeatherSystem>(SYS.weather).setWeather(type);
+      },
+      setWeatherAuto: (on) => {
+        this.systems.get<WeatherSystem>(SYS.weather).setAuto(on);
+      },
+      getWindDebug: () => {
+        return this.systems.get<WindSystem>(SYS.wind).getDebugState();
+      },
+      setWindAuto: (on) => {
+        this.systems.get<WindSystem>(SYS.wind).setAuto(on);
+      },
+      setManualWind: (dirDeg, speed) => {
+        this.systems.get<WindSystem>(SYS.wind).setManualWind(dirDeg, speed);
       },
     };
   }
@@ -150,6 +186,7 @@ export function createRaftGame(
     scene: engine.scene,
     camera: engine.camera,
     isActionDown: (action) => engine.input.isDown(action),
+    isMouseDown: (button) => engine.input.isMouseDown(button),
     isPointerLocked: () => engine.input.isPointerLocked,
     definition,
     player: () => systems.get<PlayerSystem>(SYS.player),
@@ -163,6 +200,7 @@ export function createRaftGame(
     time: () => systems.get<TimeSystem>(SYS.time),
     ocean: () => systems.get<OceanEnvironment>(SYS.ocean),
     weather: () => systems.get<WeatherSystem>(SYS.weather),
+    wind: () => systems.get<WindSystem>(SYS.wind),
     saveWorld: (notify = false) => {
       systems.get<SaveSystem>(SYS.save).save(notify);
     },

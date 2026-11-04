@@ -186,6 +186,15 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     durabilityMax: 100,
     primaryAction: 'throw_hook',
   },
+  paddle: {
+    id: 'paddle',
+    name: 'Wooden Paddle',
+    category: 'tools',
+    color: '#a16207',
+    icon: '🛶',
+    description: 'Hold Left-Click to row toward where you look. With the sail open it only trims your heading.',
+    stackSize: 1,
+  },
   metal_ingot: {
     id: 'metal_ingot',
     name: 'Metal Ingot',

@@ -1,9 +1,6 @@
 import * as THREE from 'three';
 import type { WorldView } from '../../worldView';
 
-/** 海面漂流基准速度（木筏/漂浮物随波漂移；BuildSystem 的帆 multiplier 在此基础上缩放） */
-export const OCEAN_DRIFT_BASE = 1.9;
-
 /** 单组波的参数：高度贡献 = amp * sin(x*xFreq + z*zFreq + t*speed + phase) */
 export interface WaveComponentParams {
   xFreq: number;
@@ -70,6 +67,7 @@ function sampleWaveHeight(
  */
 const OCEAN_WAVE_GLSL = /* glsl */ `
 uniform float uTime;
+uniform vec2 uScrollOffset;
 uniform float uHeightScale;
 uniform float uBaseOffset;
 uniform vec4 uWaveXF;
@@ -179,10 +177,11 @@ export interface OceanEnvironment {
   /** 每帧 tick（Tickable）：昼夜光照 + 天气颜色/粗糙度过渡 + 波形 uniform 更新 */
   update: (dt: number, elapsed: number) => void;
   updateTimeOfDay: (normalizedDayProgress: number) => void;
-  /** 读取调参副本（调参面板展示用，改它不影响海面） */
+  /** 【仅调试】读取调参副本（调参面板展示用，改它不影响海面） */
   getTuning: () => OceanTuning;
-  /** 合并写入调参（waves 数组整体替换，长度必须与默认一致） */
+  /** 【仅调试】合并写入调参（waves 数组整体替换，长度必须与默认一致） */
   setTuning: (partial: Partial<OceanTuning>) => void;
+  /** 【仅调试】恢复默认调参 */
   resetTuning: () => void;
   /** CPU 侧波形采样（与 GPU shader 同一公式；供浮力/漂浮物等玩法使用） */
   getWaveHeightAt: (x: number, z: number) => number;
@@ -207,6 +206,8 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
   // 波形 uniforms：每帧由 updateWaves 从 tuning 打包写入
   const waveUniforms = {
     uTime: { value: 0 },
+    // 跑步机滚动偏移（WindSystem 累计航程）：GPU/CPU 同加，波形才会流过木筏
+    uScrollOffset: { value: new THREE.Vector2(0, 0) },
     uHeightScale: { value: DEFAULT_OCEAN_TUNING.heightScale },
     uBaseOffset: { value: DEFAULT_OCEAN_TUNING.baseOffset },
     uWaveXF: { value: new THREE.Vector4() },
@@ -228,7 +229,7 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
       .replace(
         '#include <beginnormal_vertex>',
         `#include <beginnormal_vertex>
-  vec2 oceanP = vec2(position.x, position.z);
+  vec2 oceanP = vec2(position.x, position.z) + uScrollOffset;
   float oceanH = oceanWave(oceanP);
   vec2 oceanG = oceanWaveGradient(oceanP);
   objectNormal = normalize(vec3(-oceanG.x, 1.0, -oceanG.y));`
@@ -237,7 +238,7 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
         '#include <begin_vertex>',
         `#include <begin_vertex>
   transformed.y += oceanH;
-  vOceanXZ = position.xz;
+  vOceanXZ = oceanP;
   vOceanWorld = transformed;
   vOceanH = oceanH;`
       );
@@ -455,11 +456,17 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
       }
       oceanMat.roughness = THREE.MathUtils.lerp(oceanMat.roughness, weather.getOceanRoughness(), 0.05);
       updateWaves(dt, weather.getWaveHeightMultiplier(), weather.getWaveSpeedMultiplier());
+      // 跑步机滚动：GPU 与 CPU 采样共用同一份偏移（WindSystem 累计航程）
+      const scroll = w.wind().getScrollOffset();
+      waveUniforms.uScrollOffset.value.set(scroll.x, scroll.z);
     },
     updateTimeOfDay,
     getTuning,
     setTuning,
     resetTuning,
-    getWaveHeightAt: (x, z) => sampleWaveHeight(x, z, waveTime, tuning, effectiveHeightScale),
+    getWaveHeightAt: (x, z) => {
+      const off = waveUniforms.uScrollOffset.value;
+      return sampleWaveHeight(x + off.x, z + off.y, waveTime, tuning, effectiveHeightScale);
+    },
   };
 }

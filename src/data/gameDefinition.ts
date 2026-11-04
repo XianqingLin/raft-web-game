@@ -38,11 +38,9 @@ export interface NewGameDefinition {
   sharks: SharkSpawnDef[];
   /** 新游戏玩家（数组 = 基数归数据层；单人模式即长度 1） */
   players: PlayerSpawnDef[];
-  /** 新游戏开局漂浮物 */
+  /** 新游戏开局漂浮物（绕筏全向散布） */
   initialDebris: {
     count: number;
-    /** 生成 x 坐标区间 [min, max] */
-    xRange: [number, number];
   };
 }
 
@@ -62,6 +60,6 @@ export const DEFAULT_RAFT_GAME: RaftGameDefinition = {
     start: { dayTime: 0.25, dayCount: 1 },
     sharks: [{ position: [20, -0.4, 0], circleRadius: 18, speed: 3.5 }],
     players: [{}],
-    initialDebris: { count: 6, xRange: [-55, 30] },
+    initialDebris: { count: 6 },
   },
 };

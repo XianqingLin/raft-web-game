@@ -4,6 +4,7 @@ import { SystemRegistry } from '../lifecycle';
 import { events } from '../../core/events';
 import { createOceanEnvironment } from './environment/ocean';
 import { createWeather } from './environment/weather';
+import { createWindSystem } from './environment/wind';
 import { TimeSystem, createTimeSystem } from './time';
 import { PlayerSystem, createPlayerSystem } from './player';
 import { InventorySystem, createInventorySystem } from './inventory';
@@ -22,6 +23,7 @@ export const SYS = {
   inventory: 'inventory',
   ocean: 'ocean',
   weather: 'weather',
+  wind: 'wind',
   hook: 'hook',
   build: 'build',
   debris: 'debris',
@@ -51,6 +53,9 @@ export function createSystems(w: WorldView, r: SystemRegistry): SystemRegistry {
   // 这些参数本身以秒级速度插值，一帧滞后不可感知。
   const ocean = r.add(SYS.ocean, createOceanEnvironment(w));
   r.add(SYS.weather, createWeather(w, ocean));
+  // wind 在 weather 之后：tick 读天气目标风速（惰性 getter，创建顺序无环）；
+  // ocean/weather 的 tick 略先于 wind，消费上一帧的滚动量——一帧滞后不可感知。
+  r.add(SYS.wind, createWindSystem(w));
 
   r.add(SYS.hook, createHookSystem(w));
   r.add(SYS.build, createBuildSystem(w));
@@ -72,6 +77,9 @@ function initializeNewGame(systems: SystemRegistry, definition: RaftGameDefiniti
   player.clear();
   for (const def of newGame.players) player.spawn(def);
 
+  // 新游戏/世界重置：物品栏恢复默认热栏与背包（读档以存档为权威，不走这里）
+  systems.get<InventorySystem>(SYS.inventory).resetToDefaults();
+
   const shark = systems.get<SharkSystem>(SYS.shark);
   shark.clear();
   shark.setDefeated(false);
@@ -79,9 +87,8 @@ function initializeNewGame(systems: SystemRegistry, definition: RaftGameDefiniti
 
   systems.get<BuildSystem>(SYS.build).createInitialRaft();
 
-  const [debrisMinX, debrisMaxX] = newGame.initialDebris.xRange;
   for (let i = 0; i < newGame.initialDebris.count; i++) {
-    systems.get<DebrisSystem>(SYS.debris).spawn(debrisMinX + Math.random() * (debrisMaxX - debrisMinX));
+    systems.get<DebrisSystem>(SYS.debris).spawn(true);
   }
 }
 

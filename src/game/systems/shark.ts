@@ -8,7 +8,6 @@ import { events } from '../../core/events';
 import { BLOCK_SIZE } from '../visuals/shared';
 import { createSharkMesh, applySharkSkin, createSharkMeatMesh } from '../visuals/shark';
 import { PlayerState } from '../entities/player';
-import { OCEAN_DRIFT_BASE } from './environment/ocean';
 
 /**
  * Shark AI & Combat System (Bruce the Great White).
@@ -30,8 +29,8 @@ export interface SharkContext {
   saveWorld: (notify?: boolean) => void;
   getHookState: () => string;
   getHookPos: () => THREE.Vector3;
-  /** 洋流有效漂移速度（鱼肉漂移用，与 hook/debris 同源） */
-  getEffectiveDrift: () => number;
+  /** 世界相对木筏流速（鱼肉漂移用，与 hook/debris 同源 WindSystem） */
+  getFlow: () => { x: number; z: number };
   /** 海面波形采样（鲨鱼/鱼肉贴水高度与渲染同一公式） */
   getWaveHeight: (x: number, z: number) => number;
 }
@@ -156,7 +155,7 @@ export class SharkSystem implements Tickable {
 
   update(dt: number, elapsed: number) {
     // Meat drift & pickup（与个体鲨鱼无关的系统级集合）
-    this.updateMeat(dt, elapsed, this.ctx.getEffectiveDrift());
+    this.updateMeat(dt, elapsed, this.ctx.getFlow());
 
     // 每条鲨鱼一个状态机 tick
     for (const inst of this.instances) {
@@ -505,12 +504,13 @@ export class SharkSystem implements Tickable {
     soundManager.playWaterSplash(0.7);
   }
 
-  updateMeat(dt: number, elapsed: number, effectiveDrift: number) {
+  updateMeat(dt: number, elapsed: number, flow: { x: number; z: number }) {
     for (let i = this.floatingMeatList.length - 1; i >= 0; i--) {
       const meat = this.floatingMeatList[i];
       if (meat.caught) continue;
 
-      meat.pos.z += effectiveDrift * dt * 0.7;
+      meat.pos.x += flow.x * dt * 0.7;
+      meat.pos.z += flow.z * dt * 0.7;
       meat.pos.y = this.ctx.getWaveHeight(meat.pos.x, meat.pos.z) + 0.08 + Math.sin(elapsed * 2.8 + meat.bobPhase) * 0.05;
       meat.mesh.position.copy(meat.pos);
       meat.mesh.rotation.y += 0.5 * dt;
@@ -561,7 +561,7 @@ export function createSharkSystem(w: WorldView): SharkSystem {
     saveWorld: (notify) => w.saveWorld(notify),
     getHookState: () => w.hook().hookState,
     getHookPos: () => w.hook().hookPos,
-    getEffectiveDrift: () => OCEAN_DRIFT_BASE * w.build().driftSpeedMultiplier,
+    getFlow: () => w.wind().getWorldFlow(),
     getWaveHeight: (x, z) => w.ocean().getWaveHeightAt(x, z),
   });
 

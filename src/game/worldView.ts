@@ -3,6 +3,7 @@ import type { GameAction } from './engine/inputMap';
 import type { RaftGameDefinition } from '../data/gameDefinition';
 import type { OceanEnvironment } from './systems/environment/ocean';
 import type { WeatherSystem } from './systems/environment/weather';
+import type { WindSystem } from './systems/environment/wind';
 import type { DebrisSystem } from './systems/debris';
 import type { PlayerSystem } from './systems/player';
 import type { InventorySystem } from './systems/inventory';
@@ -32,6 +33,8 @@ export interface WorldView {
   camera: THREE.PerspectiveCamera;
   /** 动作级按键轮询（键位定义在 engine/inputMap.ts，系统不接触原始键码） */
   isActionDown: (action: GameAction) => boolean;
+  /** 鼠标按键轮询（0=左键；划桨等"按住"逻辑用） */
+  isMouseDown: (button: number) => boolean;
   isPointerLocked: () => boolean;
 
   // 游戏定义（启动配置与新游戏初始状态；运行状态归各系统所有）
@@ -49,6 +52,7 @@ export interface WorldView {
   time: () => TimeSystem;
   ocean: () => OceanEnvironment;
   weather: () => WeatherSystem;
+  wind: () => WindSystem;
 
   // 世界级服务
   /** 存档（BuildSystem 放置后自动存档、SharkSystem 击杀后存档走这里） */

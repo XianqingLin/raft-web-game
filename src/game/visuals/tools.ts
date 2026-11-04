@@ -278,11 +278,83 @@ export function createSurvivalSpearMesh(): THREE.Group {
   return group;
 }
 
+/**
+ * 木桨（手持工具模型）：桨杆沿 -Z 指向视角前方，前端是扁平桨叶，
+ * 尾端缠绳握把。划水动画（前倾入水/回桨）由 HookSystem 驱动。
+ */
+export function createPaddleMesh(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'fpsPaddle';
+
+  const shaftMat = new THREE.MeshStandardMaterial({
+    color: 0x92400e, // 温暖硬木桨杆
+    roughness: 0.78,
+    metalness: 0.03,
+  });
+  const bladeMat = new THREE.MeshStandardMaterial({
+    color: 0xb45309, // 桨叶略浅，入水那面像被水磨亮
+    roughness: 0.6,
+    metalness: 0.05,
+  });
+  const gripMat = new THREE.MeshStandardMaterial({
+    color: 0x291a0c, // 深色缠绳握把
+    roughness: 0.94,
+    metalness: 0.0,
+  });
+
+  // 1. 桨杆（~1.2m，沿 Z 轴）
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 1.2, 8), shaftMat);
+  shaft.rotation.x = Math.PI / 2;
+  shaft.position.set(0, 0, 0.15);
+  shaft.castShadow = true;
+  group.add(shaft);
+
+  // 2. 扁平桨叶（前端，微收腰的两段盒体拼出圆润轮廓）
+  const bladeRoot = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), bladeMat);
+  bladeRoot.position.set(0, 0, -0.55);
+  bladeRoot.castShadow = true;
+
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.26, 0.34), bladeMat);
+  blade.position.set(0, 0, -0.78);
+  blade.castShadow = true;
+
+  const bladeTip = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.026, 10), bladeMat);
+  bladeTip.rotation.x = Math.PI / 2;
+  bladeTip.position.set(0, 0, -0.94);
+  bladeTip.castShadow = true;
+  group.add(bladeRoot, blade, bladeTip);
+
+  // 3. 尾端缠绳握把 + T 字柄头
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.3, 8), gripMat);
+  grip.rotation.x = Math.PI / 2;
+  grip.position.set(0, 0, 0.62);
+  group.add(grip);
+
+  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.038, 8, 6), gripMat);
+  pommel.position.set(0, 0, 0.78);
+  group.add(pommel);
+
+  // 桨杆中段防滑箍
+  [0.3, 0.42].forEach((gz) => {
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.029, 0.005, 6, 12), gripMat);
+    band.position.set(0, 0, gz);
+    group.add(band);
+  });
+
+  // 第一人称持桨姿态：桨身斜横在视线下方，桨叶指向前下方
+  group.position.set(0.33, -0.3, -0.42);
+  group.rotation.set(0.42, -0.3, 0.14);
+
+  return group;
+}
+
 export function createFPSTool(tool: string): THREE.Group {
   if (tool === 'hook') {
     return createGrapplingHookMesh(true);
   } else if (tool === 'spear') {
     return createSurvivalSpearMesh();
+  } else if (tool === 'paddle') {
+    return createPaddleMesh();
   }
 
   const toolGroup = new THREE.Group();

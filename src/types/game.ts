@@ -43,7 +43,8 @@ export type ToolId =
   | 'hammer'
   | 'spear'
   | 'metal_spear'
-  | 'reinforced_hook';
+  | 'reinforced_hook'
+  | 'paddle';
 
 export type ItemId = ResourceId | ToolId;
 
@@ -140,6 +141,8 @@ export interface PlacedStructure {
     cropGrowProgress?: number;
     trappedItems?: ResourceId[];
     chestItems?: InventorySlot[];
+    /** 帆是否张开（E 交互切换；张开时为木筏提供风推力） */
+    sailOpen?: boolean;
   };
 }
 

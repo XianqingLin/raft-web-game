@@ -16,7 +16,6 @@ import { ITEM_DEFINITIONS } from '../../data/items';
 import { soundManager } from '../../audio/soundManager';
 import { createGrapplingHookMesh, createFPSTool } from '../visuals/tools';
 import { events } from '../../core/events';
-import { OCEAN_DRIFT_BASE } from './environment/ocean';
 import { Tickable } from '../lifecycle';
 
 export type HookState = 'IDLE' | 'CHARGING' | 'THROWN' | 'FLOATING' | 'RETRACTING';
@@ -24,12 +23,16 @@ export type HookState = 'IDLE' | 'CHARGING' | 'THROWN' | 'FLOATING' | 'RETRACTIN
 export interface HookSystemContext {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  /** 洋流有效漂移速度（FLOATING 态随波漂流） */
-  getEffectiveDrift: () => number;
+  /** 世界相对木筏流速（FLOATING 态随水漂流，与 debris/shark 同源 WindSystem） */
+  getFlow: () => { x: number; z: number };
   /** 本地玩家位置（脱钩判定/收线目标） */
   getPlayerPos: () => THREE.Vector3;
   /** 当前手持物品的主动作（throw_hook 时显示蓄力/待机动画，物品映射在 data 层） */
   getActiveToolAction: () => ToolActionKind | null;
+  /** 当前手持物品 id（船桨划水动画用） */
+  getActiveItemId: () => ItemId | null;
+  /** 是否正在划桨（WindSystem 判定：手持船桨按住左键） */
+  isPaddling: () => boolean;
   /** 漂浮物活数组（钩取时原地标记 caught 并移除） */
   getDebrisList: () => DebrisObject[];
   /** 海面波形采样（钩子落水/漂浮高度与渲染同一公式） */
@@ -128,6 +131,7 @@ export class HookSystem implements Tickable {
   public update(dt: number, elapsed: number) {
     const playerPos = this.ctx.getPlayerPos();
     const activeToolAction = this.ctx.getActiveToolAction();
+    const activeItemId = this.ctx.getActiveItemId();
     const debrisList = this.ctx.getDebrisList();
 
     if (this.hookState === 'CHARGING') {
@@ -159,6 +163,17 @@ export class HookSystem implements Tickable {
         // While hook projectile is out in the ocean, hide held hook so it doesn't double-render
         this.currentToolModel.visible = false;
       }
+    } else if (activeItemId === 'paddle' && this.currentToolModel) {
+      // 划水动画：与 WindSystem 推力脉冲同频（elapsed * 3.4），前倾入水/回桨
+      if (this.ctx.isPaddling()) {
+        const s = Math.sin(elapsed * 3.4);
+        this.currentToolModel.position.set(0.3, -0.3 + s * 0.05, -0.42 - s * 0.06);
+        this.currentToolModel.rotation.set(0.42 + s * 0.3, -0.3 + s * 0.1, 0.14);
+      } else {
+        this.currentToolModel.position.set(0.33, -0.3 + Math.sin(elapsed * 2) * 0.004, -0.42);
+        this.currentToolModel.rotation.set(0.42, -0.3, 0.14);
+      }
+      this.currentToolModel.visible = true;
     } else if (this.currentToolModel) {
       this.currentToolModel.visible = true;
     }
@@ -186,7 +201,9 @@ export class HookSystem implements Tickable {
           this.hookState = 'RETRACTING';
         }
       } else if (this.hookState === 'FLOATING') {
-        this.hookPos.z += this.ctx.getEffectiveDrift() * dt;
+        const flow = this.ctx.getFlow();
+        this.hookPos.x += flow.x * dt;
+        this.hookPos.z += flow.z * dt;
         this.hookPos.y = this.ctx.getWaveHeight(this.hookPos.x, this.hookPos.z) + 0.05;
         if (this.hookPos.distanceTo(playerPos) > 56) {
           this.hookState = 'RETRACTING';
@@ -265,13 +282,18 @@ export function createHookSystem(w: WorldView): HookSystem {
   return new HookSystem({
     scene: w.scene,
     camera: w.camera,
-    getEffectiveDrift: () => OCEAN_DRIFT_BASE * w.build().driftSpeedMultiplier,
+    getFlow: () => w.wind().getWorldFlow(),
     getPlayerPos: () => w.player().localPlayer.pos,
     getActiveToolAction: () => {
       const inv = w.inventory();
       const id = inv.hotbar[inv.activeHotbarIdx]?.itemId;
       return id ? (ITEM_DEFINITIONS[id]?.primaryAction ?? null) : null;
     },
+    getActiveItemId: () => {
+      const inv = w.inventory();
+      return inv.hotbar[inv.activeHotbarIdx]?.itemId ?? null;
+    },
+    isPaddling: () => w.wind().isPaddling(),
     getDebrisList: () => w.debris().items,
     getWaveHeight: (x, z) => w.ocean().getWaveHeightAt(x, z),
     addItemToInventory: (id, count) => w.inventory().addItemToInventory(id, count),

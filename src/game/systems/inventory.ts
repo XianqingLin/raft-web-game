@@ -20,28 +20,42 @@ export interface InventoryContext {
   onToolSlotChanged: (itemId: ItemId | null) => void;
 }
 
+/** 新游戏的默认热栏/背包（【临时测试】含自带船桨，见 docs/FEATURES_OFF.md §8） */
+const DEFAULT_HOTBAR = (): HotbarSlot[] => [
+  { itemId: 'hook', count: 1, durability: 50 },
+  { itemId: 'hammer', count: 1, durability: 100 },
+  { itemId: 'spear', count: 1, durability: 40 },
+  { itemId: 'cup_empty', count: 1 },
+  { itemId: 'wood', count: 20 },
+  { itemId: 'plastic', count: 16 },
+  { itemId: 'leaf', count: 12 },
+  { itemId: 'paddle', count: 1 },
+];
+
+const DEFAULT_INVENTORY = (): InventorySlot[] =>
+  Array.from({ length: 16 }, (_, i) =>
+    i === 0 ? { itemId: 'scrap', count: 8 } : { itemId: null, count: 0 }
+  );
+
 export class InventorySystem {
-  public hotbar: HotbarSlot[] = [
-    { itemId: 'hook', count: 1, durability: 50 },
-    { itemId: 'hammer', count: 1, durability: 100 },
-    { itemId: 'spear', count: 1, durability: 40 },
-    { itemId: 'cup_empty', count: 1 },
-    { itemId: 'wood', count: 20 },
-    { itemId: 'plastic', count: 16 },
-    { itemId: 'leaf', count: 12 },
-    { itemId: 'scrap', count: 8 },
-  ];
+  public hotbar: HotbarSlot[] = DEFAULT_HOTBAR();
   public activeHotbarIdx: number = 0;
 
-  public inventory: InventorySlot[] = Array.from({ length: 16 }, () => ({
-    itemId: null,
-    count: 0,
-  }));
+  public inventory: InventorySlot[] = DEFAULT_INVENTORY();
 
   private ctx: InventoryContext;
 
   constructor(ctx: InventoryContext) {
     this.ctx = ctx;
+  }
+
+  /** 恢复默认热栏与背包（新游戏 / 世界重置用；读档路径不走这里，存档为权威） */
+  public resetToDefaults() {
+    this.hotbar = DEFAULT_HOTBAR();
+    this.inventory = DEFAULT_INVENTORY();
+    this.activeHotbarIdx = 0;
+    this.ctx.onToolSlotChanged(this.hotbar[0].itemId ?? null);
+    this.emitInventoryChanged();
   }
 
   private get player(): PlayerState {

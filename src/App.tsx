@@ -3,15 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, Suspense } from 'react';
 import { createRaftGame, RaftGame } from './game/raftGame';
 import { BuildingType } from './types/game';
 import { HUD } from './ui/components/HUD';
 import { InventoryCraftingModal } from './ui/components/InventoryCraftingModal';
-import { OceanDebugPanel } from './ui/components/OceanDebugPanel';
 import { PauseMenu } from './ui/components/PauseMenu';
 import { useUiStore } from './ui/uiStore';
 import { events } from './core/events';
+
+// 调试面板仅开发期存在：DEV=false 的生产构建会摇掉整个分支与动态导入，
+// 面板代码不进产物（摘除清单见 RaftGameDebugCommands 注释）。
+const OceanDebugPanel = import.meta.env.DEV
+  ? React.lazy(() =>
+      import('./ui/components/OceanDebugPanel').then((m) => ({ default: m.OceanDebugPanel }))
+    )
+  : null;
 
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
@@ -249,9 +256,11 @@ export default function App() {
         stats={stats}
       />
 
-      {/* 海面调参面板（Backquote 开关；打开期间抑制暂停菜单） */}
-      {isOceanDebugOpen && gameRef.current && (
-        <OceanDebugPanel game={gameRef.current} onClose={toggleOceanDebug} />
+      {/* 海面调参面板（Backquote 开关；打开期间抑制暂停菜单；仅开发构建挂载） */}
+      {import.meta.env.DEV && OceanDebugPanel && isOceanDebugOpen && gameRef.current && (
+        <Suspense fallback={null}>
+          <OceanDebugPanel game={gameRef.current} onClose={toggleOceanDebug} />
+        </Suspense>
       )}
 
       {/* Pause & Start Splash Screen */}

@@ -109,6 +109,15 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     requiresWorkbench: true,
   },
   {
+    id: 'craft_paddle',
+    targetItem: 'paddle',
+    name: 'Wooden Paddle',
+    category: 'tools',
+    cost: { wood: 4, scrap: 1, rope: 2 },
+    description: 'Hold Left-Click to row toward your view — beats the current, no stamina needed.',
+    unlockedByDefault: true,
+  },
+  {
     id: 'craft_shark_bait',
     targetItem: 'shark_bait',
     name: 'Shark Bait',

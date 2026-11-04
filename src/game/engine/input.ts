@@ -29,12 +29,19 @@ export interface InputHandlers {
 export class InputSystem {
   /** 按键状态表（code -> 是否按下），供移动系统每帧读取 */
   public keys: Record<string, boolean> = {};
+  /** 鼠标按键状态（button -> 是否按下），供划桨等"按住"逻辑每帧轮询 */
+  private mouseButtons: Record<number, boolean> = {};
   /** 是否处于指针锁定（Game 对外暴露读写，React 侧 pointerlockchange 时写入） */
   public isPointerLocked = false;
 
   /** 动作是否处于按住状态（任一绑定键按下即为真）；供移动系统每帧轮询 */
   public isDown(action: GameAction): boolean {
     return KEY_BINDINGS[action].some((code) => this.keys[code]);
+  }
+
+  /** 鼠标按键是否处于按住状态（0=左键 2=右键） */
+  public isMouseDown(button: number): boolean {
+    return this.mouseButtons[button] ?? false;
   }
 
   private handlers: InputHandlers;
@@ -72,10 +79,13 @@ export class InputSystem {
       }
     };
     const onMouseDown = (e: MouseEvent) => {
+      // 按住状态在指针锁定门外就记录：松开可能发生在解锁后（如弹窗点按），状态必须能复位
+      this.mouseButtons[e.button] = true;
       if (!this.isPointerLocked) return;
       this.handlers.onMouseDown(e.button);
     };
     const onMouseUp = (e: MouseEvent) => {
+      this.mouseButtons[e.button] = false;
       if (!this.isPointerLocked) return;
       this.handlers.onMouseUp(e.button);
     };
@@ -90,6 +100,7 @@ export class InputSystem {
           this.handlers.onKeyUp(code);
         }
       }
+      this.mouseButtons = {};
     };
     const onBlur = () => clearAllKeys();
     const onVisibilityChange = () => {

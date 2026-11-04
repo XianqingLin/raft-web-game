@@ -128,6 +128,10 @@ export class InteractionSystem implements Tickable {
           foundInteract = { structure: s, action: 'collect_net' };
           promptText = `[Left-Click] Collect ${s.data!.trappedItems!.length} Trapped Item(s)`;
           break;
+        } else if (s.type === 'sail') {
+          foundInteract = { structure: s, action: 'toggle_sail' };
+          promptText = s.data?.sailOpen ? '[Left-Click] Furl the Sail' : '[Left-Click] Unfurl the Sail';
+          break;
         } else if (s.type === 'chest') {
           foundInteract = { structure: s, action: 'open_chest' };
           promptText = '[Left-Click] Open Storage Chest';

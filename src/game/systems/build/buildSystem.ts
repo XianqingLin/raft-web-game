@@ -36,6 +36,7 @@ import {
   createCropPlotMesh,
   createChestMesh,
   createSailMesh,
+  applySailOpenState,
   createBedMesh,
 } from '../../visuals/buildings';
 import { events } from '../../../core/events';
@@ -69,9 +70,6 @@ export class BuildSystem implements Tickable {
   public isDemolishMode = false;
   public selectedBuildingType: BuildingType = 'foundation';
   public buildRotation = 0; // 0, 1, 2, 3
-
-  /** 帆数量带来的漂流速度加成（engine 每帧读取） */
-  public driftSpeedMultiplier = 1.0;
 
   private ctx: BuildSystemContext;
   private buoyancy: RaftBuoyancy;
@@ -145,6 +143,16 @@ export class BuildSystem implements Tickable {
     coords.forEach(([gx, gz]) => {
       this.placeStructure('foundation', gx, 0, gz, 0, false);
     });
+
+    // 【临时测试】新档自带一张张开的风帆，方便验证帆推力与划桨微调；
+    // 正式版移除（清单见 docs/FEATURES_OFF.md §8）。checkCost=false 不吃资源。
+    if (this.placeStructure('sail', 0, 0, 0, 0, false)) {
+      const sail = this.getStructureAt('sail', 0, 0);
+      if (sail) {
+        sail.data!.sailOpen = true;
+        applySailOpenState(sail.mesh, true);
+      }
+    }
   }
 
   // ==================== Structure Queries ====================
@@ -298,10 +306,14 @@ export class BuildSystem implements Tickable {
         cropGrowProgress: 0,
         trappedItems: [],
         chestItems: Array.from({ length: 12 }, () => ({ itemId: null, count: 0 })),
+        sailOpen: false,
       },
     };
 
     this.structures.set(key, placed);
+    if (type === 'sail') {
+      applySailOpenState(mesh, false);
+    }
 
     if (checkCost) {
       soundManager.playHammerBuild();
@@ -309,8 +321,6 @@ export class BuildSystem implements Tickable {
       this.ctx.onSave();
     }
 
-    // Update sail bonus
-    this.updateSailSpeed();
     return true;
   }
 
@@ -347,8 +357,6 @@ export class BuildSystem implements Tickable {
     events.emit('toast', { text: `Demolished ${def?.name || 'Structure'} (+Refund)`, color: '#f59e0b' });
 
     this.ctx.onSave();
-
-    this.updateSailSpeed();
   }
 
   /**
@@ -373,12 +381,17 @@ export class BuildSystem implements Tickable {
     return count;
   }
 
-  private updateSailSpeed() {
-    let sailCount = 0;
-    this.structures.forEach((s) => {
-      if (s.type === 'sail') sailCount++;
+  /** 帆开/合（E 交互结算入口）：写结构 data、切视觉、随存档持久化 */
+  public setSailOpen(structure: PlacedStructure, open: boolean) {
+    if (!structure.data || structure.data.sailOpen === open) return;
+    structure.data.sailOpen = open;
+    applySailOpenState(structure.mesh as THREE.Group, open);
+    soundManager.playReelClick();
+    events.emit('toast', {
+      text: open ? '⛵ Sail unfurled — riding the wind!' : '⛵ Sail furled.',
+      color: '#38bdf8',
     });
-    this.driftSpeedMultiplier = 1.0 + Math.min(2.5, sailCount * 0.5);
+    this.ctx.onSave();
   }
 
   /** 结构网格工厂（ghostPreview 也经 GhostPreviewHost 使用） */
@@ -616,10 +629,11 @@ export class BuildSystem implements Tickable {
       const placed = this.structures.get(s.id);
       if (placed && s.data) {
         placed.data = { ...placed.data, ...s.data };
+        if (placed.type === 'sail') {
+          applySailOpenState(placed.mesh as THREE.Group, !!placed.data.sailOpen);
+        }
       }
     });
-
-    this.updateSailSpeed();
   }
 
   /** 清空所有结构（世界重置用；随后一般接 createInitialRaft） */

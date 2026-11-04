@@ -461,23 +461,41 @@ export function createSailMesh(): THREE.Group {
   boom.position.set(0.7, 0.8, 0);
   group.add(boom);
 
-  // Billowing Canvas Sail cloth
-  const sailShape = new THREE.Shape();
-  sailShape.moveTo(0, 2.9);
-  sailShape.lineTo(1.4, 0.9);
-  sailShape.lineTo(0, 0.9);
-  sailShape.closePath();
-  const sailGeo = new THREE.ShapeGeometry(sailShape);
+  // Canvas material shared by open cloth & furled roll
   const sailMat = new THREE.MeshStandardMaterial({
     color: 0xf8fafc,
     roughness: 0.9,
     side: THREE.DoubleSide,
   });
-  const sail = new THREE.Mesh(sailGeo, sailMat);
+
+  // Billowing canvas (张开态)
+  const sailShape = new THREE.Shape();
+  sailShape.moveTo(0, 2.9);
+  sailShape.lineTo(1.4, 0.9);
+  sailShape.lineTo(0, 0.9);
+  sailShape.closePath();
+  const sail = new THREE.Mesh(new THREE.ShapeGeometry(sailShape), sailMat);
+  sail.name = 'sailCloth';
   sail.position.set(0.05, 0, 0);
   group.add(sail);
 
+  // Furled canvas roll（收拢态：缠在帆桁上的布卷）
+  const furled = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.7, 8), sailMat);
+  furled.name = 'sailFurled';
+  furled.rotation.z = Math.PI / 2;
+  furled.position.set(0.7, 0.92, 0);
+  furled.visible = false;
+  group.add(furled);
+
   return group;
+}
+
+/** 帆开/收视觉切换（建造系统在放置、E 交互与读档后调用） */
+export function applySailOpenState(mesh: THREE.Group, open: boolean): void {
+  const cloth = mesh.getObjectByName('sailCloth');
+  const furled = mesh.getObjectByName('sailFurled');
+  if (cloth) cloth.visible = open;
+  if (furled) furled.visible = !open;
 }
 
 // Bed / Hammock
