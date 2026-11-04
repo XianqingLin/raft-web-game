@@ -255,7 +255,7 @@ export function createWeatherSystem(
   };
 }
 
-// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+// ==================== Factory（由 Raft 组合根统一接线） ====================
 
 export function createWeather(w: WorldView, ocean: OceanEnvironment): WeatherSystem {
   return createWeatherSystem(

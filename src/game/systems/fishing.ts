@@ -17,7 +17,7 @@ export interface FishingSystemContext {
   getPlayerPos: () => THREE.Vector3;
   /** 海面高度采样（浮漂/水花用；weather 乘数在接线处注入） */
   getWaveHeightAt: (x: number, z: number, elapsed: number) => number;
-  /** 捕获成功时入包（GameWorld 接线到 InventorySystem） */
+  /** 捕获成功时入包（Raft 组合根 接线到 InventorySystem） */
   addItemToInventory: (itemId: 'raw_fish' | 'raw_potato' | 'scrap', count: number) => void;
   /** 捕获成功时消耗一次手持鱼竿耐久（InventorySystem 的物品消耗规则） */
   consumeRodDurability: () => void;
@@ -250,7 +250,7 @@ export class FishingSystem implements Tickable {
 
   /**
    * 手持鱼竿时的左键动作：空闲则出竿，否则收线。
-   * 捕获入包与耐久消耗在此一并路由，GameWorld 只负责按键分发。
+   * 捕获入包与耐久消耗在此一并路由，RaftInputHandler 只负责按键分发。
    */
   public onPrimaryAction() {
     if (this.state === 'IDLE') {
@@ -510,7 +510,7 @@ export class FishingSystem implements Tickable {
   }
 }
 
-// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+// ==================== Factory（由 Raft 组合根统一接线） ====================
 
 export function createFishingSystem(w: WorldView): FishingSystem {
   return new FishingSystem({

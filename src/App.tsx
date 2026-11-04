@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { GameWorld } from './game/gameWorld';
+import { createRaftGame, RaftGame } from './game/raftGame';
 import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, WeatherType } from './types/game';
 import { SharkData } from './game/entities/shark';
 import { HUD } from './components/HUD';
@@ -17,7 +17,7 @@ import { events } from './core/events';
 
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
-  const worldRef = useRef<GameWorld | null>(null);
+  const gameRef = useRef<RaftGame | null>(null);
 
   // React State mirrored from engine
   const [stats, setStats] = useState<PlayerStats>({
@@ -103,7 +103,7 @@ export default function App() {
   useEffect(() => {
     if (!canvasMountRef.current) return;
 
-    const world = new GameWorld(canvasMountRef.current, {
+    const game = createRaftGame(canvasMountRef.current, {
       onStatsChange: (newStats) => setStats(newStats),
       onHotbarChange: (newHotbar, activeIdx) => {
         setHotbar(newHotbar);
@@ -134,14 +134,14 @@ export default function App() {
       },
     });
 
-    worldRef.current = world;
+    gameRef.current = game;
 
     // Pointer lock listener
     const onPointerLockChange = () => {
       const locked = document.pointerLockElement === canvasMountRef.current || document.pointerLockElement === document.body;
       setIsPointerLocked(locked);
-      if (worldRef.current) {
-        worldRef.current.isPointerLocked = locked;
+      if (gameRef.current) {
+        gameRef.current.isPointerLocked = locked;
       }
     };
 
@@ -150,33 +150,27 @@ export default function App() {
     // Build selection now arrives via the event bus (core/events.ts)
     const offBuildingSelect = events.on('buildingSelected', ({ type }) => setSelectedBuilding(type));
 
-    // Periodic state poller for hook charging bar and build mode
+    // 高频 HUD 值由 Raft 门面统一采样，React 不接触具体系统。
     const pollInterval = window.setInterval(() => {
-      if (worldRef.current) {
-        setHookState(worldRef.current.hookSystem.hookState);
-        setHookPower(worldRef.current.hookSystem.hookPower);
-        setIsBuildMode(worldRef.current.build.isBuildMode);
-        setIsDemolishMode(worldRef.current.build.isDemolishMode);
-        setSelectedBuilding(worldRef.current.build.selectedBuildingType);
-        setSharkDefeatedOnce(worldRef.current.sharkSystem.sharkDefeatedOnce);
-      }
+      const current = gameRef.current;
+      if (!current) return;
+      const hud = current.sampleHud();
+      setHookState(hud.hookState);
+      setHookPower(hud.hookPower);
+      setIsBuildMode(hud.isBuildMode);
+      setIsDemolishMode(hud.isDemolishMode);
+      setSelectedBuilding(hud.selectedBuilding);
+      setSharkDefeatedOnce(hud.sharkDefeatedOnce);
     }, 50);
 
-    // Keyboard shortcut for I or Tab (Inventory)
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'KeyI' || e.code === 'Tab') {
-        e.preventDefault();
-        toggleInventory();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
+    // 背包快捷键（I / Tab）统一由 RaftInputHandler 经 engine/inputMap.ts
+    // 分发到 onToggleInventory 回调——此处不再挂全局 keydown，避免双触发。
 
     return () => {
       window.clearInterval(pollInterval);
       offBuildingSelect();
       document.removeEventListener('pointerlockchange', onPointerLockChange);
-      window.removeEventListener('keydown', onKeyDown);
-      world.dispose();
+      game.dispose();
     };
   }, [toggleInventory]);
 
@@ -196,44 +190,45 @@ export default function App() {
 
     // If clicking already active food/drink slot while hungry/thirsty, auto-consume!
     if (activeHotbarIdx === idx && ((isFood && stats.hunger < 98) || (isDrink && stats.thirst < 98))) {
-      worldRef.current?.inventorySystem.consumeSlot(false, idx);
+      gameRef.current?.commands.consumeSlot(false, idx);
       return;
     }
 
-    worldRef.current?.inventorySystem.setActiveHotbarSlot(idx);
+    gameRef.current?.commands.selectHotbarSlot(idx);
     setActiveHotbarIdx(idx);
   };
 
   const handleSelectBuilding = (b: BuildingType) => {
     setSelectedBuilding(b);
-    if (worldRef.current) {
-      worldRef.current.build.selectBuildingType(b);
+    if (gameRef.current) {
+      gameRef.current.commands.selectBuilding(b);
       setIsBuildMode(true);
       setIsDemolishMode(false);
     }
   };
 
   const handleToggleBuildMode = () => {
-    if (!worldRef.current) return;
-    worldRef.current.build.isBuildMode = !worldRef.current.build.isBuildMode;
-    setIsBuildMode(worldRef.current.build.isBuildMode);
+    const game = gameRef.current;
+    if (!game) return;
+    game.commands.toggleBuildMode();
+    setIsBuildMode(game.sampleHud().isBuildMode);
   };
 
   const handleCraftRecipe = (recipeId: string) => {
-    worldRef.current?.inventorySystem.craftRecipe(recipeId);
+    gameRef.current?.commands.craftRecipe(recipeId);
   };
 
   const handleRespawn = () => {
-    worldRef.current?.playerSystem.respawnPlayer();
+    gameRef.current?.commands.respawn();
     requestLock();
   };
 
   const handleSaveWorld = () => {
-    worldRef.current?.saveWorld(true);
+    gameRef.current?.commands.saveWorld(true);
   };
 
   const handleResetWorld = () => {
-    worldRef.current?.resetWorld();
+    gameRef.current?.commands.resetWorld();
   };
 
   return (
@@ -306,7 +301,7 @@ export default function App() {
         }}
         onCraftRecipe={handleCraftRecipe}
         onConsumeSlot={(isInv, idx) => {
-          worldRef.current?.inventorySystem.consumeSlot(isInv, idx);
+          gameRef.current?.commands.consumeSlot(isInv, idx);
         }}
         stats={stats}
       />
@@ -321,10 +316,10 @@ export default function App() {
         inventory={inventory}
         hotbar={hotbar}
         onFeedJunk={(res, count) => {
-          return worldRef.current ? worldRef.current.stations.feedCompactorJunk(res, count) : false;
+          return gameRef.current ? gameRef.current.commands.feedCompactorJunk(res, count) : false;
         }}
         onForgeBlock={() => {
-          return worldRef.current ? worldRef.current.stations.forgeCompactorBlock() : false;
+          return gameRef.current ? gameRef.current.commands.forgeCompactorBlock() : false;
         }}
       />
 
@@ -340,7 +335,7 @@ export default function App() {
           0
         )}
         onBuyItem={(item) => {
-          return worldRef.current ? worldRef.current.stations.buyMerchantItem(item) : false;
+          return gameRef.current ? gameRef.current.commands.buyMerchantItem(item) : false;
         }}
       />
 

@@ -47,7 +47,7 @@ export type ToolId =
 
 export type ItemId = ResourceId | ToolId;
 
-/** 手持工具左键点击时触发的动作种类（具体执行由 GameWorld 接线到各系统） */
+/** 手持工具左键点击时触发的动作种类（具体执行由 Raft 组合根接线到各系统） */
 export type ToolActionKind =
   | 'throw_hook'
   | 'cast_fishing_rod'

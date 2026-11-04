@@ -316,7 +316,7 @@ export class InventorySystem {
   }
 }
 
-// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+// ==================== Factory（由 Raft 组合根统一接线） ====================
 
 export function createInventorySystem(w: WorldView): InventorySystem {
   return new InventorySystem({

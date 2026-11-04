@@ -12,6 +12,7 @@ import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { PlayerStats } from '../../types/game';
 import { PlayerSpawnDef } from '../../data/worldDefinition';
+import type { GameAction } from '../engine/inputMap';
 import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/shared';
 import { soundManager } from '../../audio/soundManager';
 import { events } from '../../core/events';
@@ -29,7 +30,8 @@ export interface PlayerSystemContext {
   build: () => BuildSystem;
   /** 岛屿地形高度（脚下高度判定用） */
   getIslandHeight: (x: number, z: number) => number;
-  keys: Record<string, boolean>;
+  /** 动作级按键轮询（键位定义在 engine/inputMap.ts） */
+  isActionDown: (action: GameAction) => boolean;
   getPointerLocked: () => boolean;
   onStatsChange: (stats: PlayerStats) => void;
 }
@@ -118,10 +120,10 @@ export class PlayerSystem implements Tickable {
       const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
 
       const move = new THREE.Vector3();
-      if (this.ctx.keys.KeyW) move.add(fwd);
-      if (this.ctx.keys.KeyS) move.sub(fwd);
-      if (this.ctx.keys.KeyD) move.add(right);
-      if (this.ctx.keys.KeyA) move.sub(right);
+      if (this.ctx.isActionDown('moveForward')) move.add(fwd);
+      if (this.ctx.isActionDown('moveBackward')) move.sub(fwd);
+      if (this.ctx.isActionDown('moveRight')) move.add(right);
+      if (this.ctx.isActionDown('moveLeft')) move.sub(right);
       if (move.lengthSq() > 0) move.normalize();
 
       const standingOnRaft = this.ctx.build().checkOnRaft(player.pos.x, player.pos.z);
@@ -147,7 +149,8 @@ export class PlayerSystem implements Tickable {
       }
 
       // Jump (when on solid ground) or swim up/climb onto raft (when in water)
-      if (this.ctx.keys.Space && player.onGround && isSolidGround) {
+      const jumpHeld = this.ctx.isActionDown('jump');
+      if (jumpHeld && player.onGround && isSolidGround) {
         if (!this.spaceKeyHandled) {
           player.vel.y = 5.8;
           player.onGround = false;
@@ -155,7 +158,7 @@ export class PlayerSystem implements Tickable {
         }
       } else if (player.inWater) {
         // In ocean: holding Space swims upwards towards the surface (capped at water surface, never into the air!)
-        if (this.ctx.keys.Space) {
+        if (jumpHeld) {
           if (player.pos.y < waterSurfaceEyeY - 0.05) {
             player.vel.y = Math.min(2.6, player.vel.y + 14 * dt);
             if (Math.random() < 0.06) soundManager.playWaterSplash(0.35);
@@ -166,7 +169,7 @@ export class PlayerSystem implements Tickable {
         }
         // Climb smoothly out of water onto raft or island (ONLY allowed when player is at the waterline near the edge)
         const canClimb = (standingOnRaft || onIsland) && player.pos.y >= 0.15 && player.pos.y <= 1.25;
-        if (canClimb && (this.ctx.keys.Space || move.lengthSq() > 0)) {
+        if (canClimb && (jumpHeld || move.lengthSq() > 0)) {
           player.vel.y = 4.8;
           player.inWater = false;
           soundManager.playWaterSplash(0.6);
@@ -302,7 +305,7 @@ export class PlayerSystem implements Tickable {
 
   // ==================== Look & Water Queries ====================
 
-  /** 鼠标视角：灵敏度缩放 + 俯仰钳制（GameWorld 只转发原始位移量；仅本地玩家） */
+  /** 鼠标视角：灵敏度缩放 + 俯仰钳制（RaftInputHandler 转发原始位移量；仅本地玩家） */
   public applyLookDelta(dx: number, dy: number) {
     const player = this.localPlayer;
     player.yaw -= dx * MOUSE_SENSITIVITY;
@@ -318,12 +321,12 @@ export class PlayerSystem implements Tickable {
   }
 }
 
-// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+// ==================== Factory（由 Raft 组合根统一接线） ====================
 
 export function createPlayerSystem(w: WorldView): PlayerSystem {
   const system = new PlayerSystem({
     camera: w.camera,
-    keys: w.keys,
+    isActionDown: w.isActionDown,
     getPointerLocked: w.isPointerLocked,
     build: () => w.build(),
     getIslandHeight: (x, z) => w.islands().getHeightAt(x, z),

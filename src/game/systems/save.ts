@@ -14,7 +14,7 @@ import { SharkSystem } from './shark';
  * 自动存档节律、页面卸载前的保存。存储后端是 storage.ts（localStorage）。
  *
  * 与 InteractionSystem 同类：构造在所有系统之后、消费所有系统的只读引用。
- * 是否存档/何时清档的"世界级决策"归 GameWorld，本系统只负责持久化本身。
+ * 是否存档/何时清档的"世界级决策"归 RaftGame 与系统编排层，本系统只负责持久化本身。
  */
 
 export interface SaveSystemContext {
@@ -125,7 +125,7 @@ export class SaveSystem {
     return true;
   }
 
-  /** 清除本地存档（世界重置的持久化部分；世界重建编排归 GameWorld） */
+  /** 清除本地存档（世界重置的持久化部分；世界重建编排归 systems/index.ts） */
   public clear(): void {
     clearWorldLocally();
   }
@@ -137,7 +137,7 @@ export class SaveSystem {
   }
 }
 
-// ==================== Factory（依赖接线集中于此，GameWorld 一行调用） ====================
+// ==================== Factory（由 Raft 组合根统一接线） ====================
 
 export function createSaveSystem(w: WorldView): SaveSystem {
   return new SaveSystem({
