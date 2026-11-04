@@ -1,5 +1,6 @@
 import type {
   BuildingType,
+  WeatherType,
   WorldSaveData,
 } from '../types/game';
 import { DEFAULT_RAFT_GAME, type RaftGameDefinition } from '../data/gameDefinition';
@@ -50,6 +51,9 @@ export interface RaftGameCommands {
   getOceanTuning(): OceanTuning;
   setOceanTuning(partial: Partial<OceanTuning>): void;
   resetOceanTuning(): void;
+  /** 天气（调试面板用）：立即切换并平滑过渡 */
+  getWeather(): WeatherType;
+  setWeather(type: WeatherType): void;
 }
 
 /** 已完整组装的 Raft 应用。具体系统知识集中在这个应用门面和组合根。 */
@@ -94,6 +98,12 @@ export class RaftGame {
       },
       resetOceanTuning: () => {
         this.systems.get<OceanEnvironment>(SYS.ocean).resetTuning();
+      },
+      getWeather: () => {
+        return this.systems.get<WeatherSystem>(SYS.weather).currentWeather;
+      },
+      setWeather: (type) => {
+        this.systems.get<WeatherSystem>(SYS.weather).setWeather(type);
       },
     };
   }

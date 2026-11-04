@@ -8,6 +8,13 @@
 import { useCallback, useState } from 'react';
 import type { RaftGame } from '../../game/raftGame';
 import type { OceanTuning, WaveComponentParams } from '../../game/systems/environment/ocean';
+import type { WeatherType } from '../../types/game';
+
+const WEATHER_OPTIONS: Array<{ type: WeatherType; label: string }> = [
+  { type: 'CLEAR', label: '☀️ 晴朗' },
+  { type: 'LIGHT_FOG', label: '🌫️ 薄雾' },
+  { type: 'HEAVY_RAIN', label: '🌧️ 暴风雨' },
+];
 
 interface OceanDebugPanelProps {
   game: RaftGame;
@@ -48,6 +55,7 @@ function SliderRow({
 
 export function OceanDebugPanel({ game, onClose }: OceanDebugPanelProps) {
   const [tuning, setTuning] = useState<OceanTuning>(() => game.commands.getOceanTuning());
+  const [weather, setWeather] = useState<WeatherType>(() => game.commands.getWeather());
 
   const apply = useCallback(
     (patch: Partial<OceanTuning>) => {
@@ -110,6 +118,22 @@ export function OceanDebugPanel({ game, onClose }: OceanDebugPanelProps) {
           step={0.05}
           onChange={(v) => apply({ baseOffset: v })}
         />
+        <SliderRow
+          label="细节波光"
+          value={tuning.detailStrength}
+          min={0}
+          max={2}
+          step={0.05}
+          onChange={(v) => apply({ detailStrength: v })}
+        />
+        <SliderRow
+          label="浪尖泡沫"
+          value={tuning.foamAmount}
+          min={0}
+          max={1}
+          step={0.05}
+          onChange={(v) => apply({ foamAmount: v })}
+        />
         <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
           <input
             type="checkbox"
@@ -119,6 +143,32 @@ export function OceanDebugPanel({ game, onClose }: OceanDebugPanelProps) {
           />
           网格线（调试参考，默认关）
         </label>
+      </div>
+
+      {/* 天气切换（立即生效，平滑过渡） */}
+      <div className="mb-3">
+        <div className="text-[11px] font-semibold text-slate-200 mb-1.5">天气</div>
+        <div className="flex gap-1.5">
+          {WEATHER_OPTIONS.map(({ type, label }) => (
+            <button
+              key={type}
+              onClick={() => {
+                game.commands.setWeather(type);
+                setWeather(game.commands.getWeather());
+              }}
+              className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors ${
+                weather === type
+                  ? 'bg-sky-500 text-white'
+                  : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] text-slate-500 mt-1">
+          提示：自然天气每 ~2 分钟随机切换，手动选择只是覆盖当前状态。
+        </p>
       </div>
 
       {/* 分波参数 */}
