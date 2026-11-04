@@ -170,7 +170,9 @@ export class PlayerSystem implements Tickable {
           }
         }
         // Climb smoothly out of water onto raft (ONLY allowed when player is at the waterline near the edge)
-        const canClimb = standingOnRaft && player.pos.y >= 0.15 && player.pos.y <= 1.25;
+        // 攀爬窗口必须相对筏体：木筏整体高度随波漂移，绝对 y 判定在风暴时会失效
+        const raftY = this.ctx.build().raftGroup.position.y;
+        const canClimb = standingOnRaft && player.pos.y - raftY >= 0.15 && player.pos.y - raftY <= 1.25;
         if (canClimb && (jumpHeld || move.lengthSq() > 0)) {
           player.vel.y = 4.8;
           player.inWater = false;
@@ -189,7 +191,7 @@ export class PlayerSystem implements Tickable {
         const fx = s.gx * BLOCK_SIZE;
         const fz = s.gz * BLOCK_SIZE;
         if (Math.abs(player.pos.x - fx) <= BLOCK_SIZE / 2 && Math.abs(player.pos.z - fz) <= BLOCK_SIZE / 2) {
-          const ceilingY = this.ctx.build().raftGroup.position.y + BLOCK_HEIGHT / 2 + WALL_HEIGHT;
+          const ceilingY = this.ctx.build().deckYAt(fx, fz) + BLOCK_HEIGHT / 2 + WALL_HEIGHT;
           if (player.pos.y + 0.15 > ceilingY && player.pos.y - 1.7 < ceilingY - 0.4) {
             player.pos.y = ceilingY - 0.15;
             player.vel.y = 0;
