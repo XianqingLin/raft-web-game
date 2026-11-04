@@ -1,5 +1,5 @@
 import type { WorldView } from '../../worldView';
-import type { OceanEnvironment } from './ocean';
+import type { SkyEnvironment } from './sky';
 import type { WindState } from './wind';
 import * as THREE from 'three';
 import { WeatherType } from '../../../types/game';
@@ -257,14 +257,14 @@ export function createWeatherSystem(
 
 // ==================== Factory（由 Raft 组合根统一接线） ====================
 
-export function createWeather(w: WorldView, ocean: OceanEnvironment): WeatherSystem {
+export function createWeather(w: WorldView, sky: SkyEnvironment): WeatherSystem {
   return createWeatherSystem(
     w.scene,
-    ocean.sunLight,
-    ocean.ambientLight,
-    ocean.hemiLight,
+    sky.sunLight,
+    sky.ambientLight,
+    sky.hemiLight,
     () => w.camera.position,
-    ocean.getWaveHeightAt,
+    (x, z) => w.ocean().getWaveHeightAt(x, z),
     {
       getWindState: () => w.wind().getWindState(),
       getWindVector: () => w.wind().getWindVector(),

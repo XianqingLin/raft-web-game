@@ -170,13 +170,8 @@ vec2 oceanDetailGrad(vec2 xz, float t) {
 export interface OceanEnvironment {
   oceanMesh: THREE.Mesh;
   oceanGrid: THREE.GridHelper;
-  sunLight: THREE.DirectionalLight;
-  hemiLight: THREE.HemisphereLight;
-  ambientLight: THREE.AmbientLight;
-  starField: THREE.Points;
-  /** 每帧 tick（Tickable）：昼夜光照 + 天气颜色/粗糙度过渡 + 波形 uniform 更新 */
+  /** 每帧 tick（Tickable）：天气颜色/粗糙度过渡 + 波形 uniform 更新（昼夜光照在 sky.ts） */
   update: (dt: number, elapsed: number) => void;
-  updateTimeOfDay: (normalizedDayProgress: number) => void;
   /** 【仅调试】读取调参副本（调参面板展示用，改它不影响海面） */
   getTuning: () => OceanTuning;
   /** 【仅调试】合并写入调参（waves 数组整体替换，长度必须与默认一致） */
@@ -280,59 +275,7 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
   oceanGrid.visible = DEFAULT_OCEAN_TUNING.gridVisible;
   scene.add(oceanGrid);
 
-  // 2. Starfield for starry nights
-  const starCount = 800;
-  const starGeo = new THREE.BufferGeometry();
-  const starPositions = new Float32Array(starCount * 3);
-  for (let i = 0; i < starCount; i++) {
-    const u = Math.random();
-    const v = Math.random();
-    const theta = u * 2.0 * Math.PI;
-    const phi = Math.acos(2.0 * v - 1.0);
-    const r = 250;
-    const sinPhi = Math.sin(phi);
-    starPositions[i * 3] = r * sinPhi * Math.cos(theta);
-    starPositions[i * 3 + 1] = Math.abs(r * Math.cos(phi)) + 15; // Above horizon
-    starPositions[i * 3 + 2] = r * sinPhi * Math.sin(theta);
-  }
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-  const starMat = new THREE.PointsMaterial({
-    color: 0xffffff,
-    size: 1.8,
-    transparent: true,
-    opacity: 0,
-  });
-  const starField = new THREE.Points(starGeo, starMat);
-  scene.add(starField);
-
-  // 3. Lighting Rig
-  const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.4);
-  scene.add(ambientLight);
-
-  const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x0369a1, 0.55);
-  scene.add(hemiLight);
-
-  const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.1);
-  sunLight.position.set(45, 70, 30);
-  sunLight.castShadow = true;
-  sunLight.shadow.mapSize.width = 2048;
-  sunLight.shadow.mapSize.height = 2048;
-  sunLight.shadow.camera.near = 0.5;
-  sunLight.shadow.camera.far = 160;
-  const d = 40;
-  sunLight.shadow.camera.left = -d;
-  sunLight.shadow.camera.right = d;
-  sunLight.shadow.camera.top = d;
-  sunLight.shadow.camera.bottom = -d;
-  sunLight.shadow.bias = -0.0004;
-  sunLight.shadow.normalBias = 0.02;
-  scene.add(sunLight);
-
-  // Default daylight fog & background
-  scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.FogExp2(0x87ceeb, 0.009);
-
-  // 4. Wave clock & tuning
+  // 2. Wave clock & tuning
   // 波形时间独立累加（而非 elapsed * timeScale）：拖动流速滑杆不会造成时间跳变
   let tuning: OceanTuning = {
     ...DEFAULT_OCEAN_TUNING,
@@ -387,69 +330,10 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
     };
   };
 
-  // 5. Update Time of Day (0 = sunrise, 0.25 = noon, 0.5 = sunset, 0.75 = midnight)
-  const daySkyColor = new THREE.Color(0x87ceeb);
-  const sunsetSkyColor = new THREE.Color(0xfb923c);
-  const nightSkyColor = new THREE.Color(0x090d16);
-
-  const updateTimeOfDay = (t: number) => {
-    // Angle of sun in sky
-    const sunAngle = t * Math.PI * 2 - Math.PI / 2;
-    const sunDist = 90;
-    const sunY = Math.sin(sunAngle) * sunDist;
-    const sunX = Math.cos(sunAngle) * sunDist;
-
-    sunLight.position.set(sunX, Math.max(-20, sunY), 30);
-
-    const isDay = sunY > 0;
-    let targetSky = new THREE.Color();
-    let targetSunColor = new THREE.Color();
-    let sunIntensity = 1.0;
-    let starOpacity = 0;
-
-    if (sunY > 20) {
-      // High noon
-      targetSky.copy(daySkyColor);
-      targetSunColor.setHex(0xfffbeb);
-      sunIntensity = 1.1;
-      starOpacity = 0;
-    } else if (sunY > -5) {
-      // Golden hour / sunset / sunrise
-      const blend = (sunY + 5) / 25;
-      targetSky.lerpColors(sunsetSkyColor, daySkyColor, blend);
-      targetSunColor.setHex(0xf97316);
-      sunIntensity = 0.8;
-      starOpacity = 0.1;
-    } else {
-      // Night time
-      targetSky.copy(nightSkyColor);
-      targetSunColor.setHex(0x93c5fd); // Moon light
-      sunIntensity = 0.25;
-      starOpacity = 0.9;
-    }
-
-    if (scene.background instanceof THREE.Color) {
-      scene.background.lerp(targetSky, 0.05);
-      if (scene.fog) {
-        scene.fog.color.lerp(targetSky, 0.05);
-      }
-    }
-
-    sunLight.color.lerp(targetSunColor, 0.05);
-    sunLight.intensity = THREE.MathUtils.lerp(sunLight.intensity, sunIntensity, 0.05);
-    starMat.opacity = THREE.MathUtils.lerp(starMat.opacity, starOpacity, 0.05);
-    ambientLight.intensity = isDay ? 0.45 : 0.18;
-  };
-
   return {
     oceanMesh,
     oceanGrid,
-    sunLight,
-    hemiLight,
-    ambientLight,
-    starField,
     update: (dt, _elapsed) => {
-      updateTimeOfDay(w.time().dayTime);
       const weather = w.weather();
       if (weather.getOceanColor()) {
         oceanMat.color.lerp(weather.getOceanColor(), 0.05);
@@ -460,7 +344,6 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
       const scroll = w.wind().getScrollOffset();
       waveUniforms.uScrollOffset.value.set(scroll.x, scroll.z);
     },
-    updateTimeOfDay,
     getTuning,
     setTuning,
     resetTuning,

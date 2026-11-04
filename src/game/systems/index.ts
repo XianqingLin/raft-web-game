@@ -2,6 +2,7 @@ import type { WorldView } from '../worldView';
 import type { RaftGameDefinition } from '../../data/gameDefinition';
 import { SystemRegistry } from '../lifecycle';
 import { events } from '../../core/events';
+import { createSkyEnvironment } from './environment/sky';
 import { createOceanEnvironment } from './environment/ocean';
 import { createWeather } from './environment/weather';
 import { createWindSystem } from './environment/wind';
@@ -21,6 +22,7 @@ export const SYS = {
   time: 'time',
   player: 'player',
   inventory: 'inventory',
+  sky: 'sky',
   ocean: 'ocean',
   weather: 'weather',
   wind: 'wind',
@@ -48,11 +50,12 @@ export function createSystems(w: WorldView, r: SystemRegistry): SystemRegistry {
   r.add(SYS.player, createPlayerSystem(w));
   r.add(SYS.inventory, createInventorySystem(w));
 
-  // Ocean 在 weather 之前：weather 的灯光由 ocean 创建（创建期依赖），
-  // 因此 ocean 的 tick 也略先于 weather——波形参数消费上一帧的天气值；
-  // 这些参数本身以秒级速度插值，一帧滞后不可感知。
+  // Sky 在 ocean/weather 之前：weather 的灯光由 sky 创建（创建期依赖），
+  // ocean 的水色派生每帧读天空色；sky 的 tick（昼夜过渡）也略先于 weather——
+  // 三者都是每帧小步 lerp，顺序与拆分前一致，叠加效果不变。
+  const sky = r.add(SYS.sky, createSkyEnvironment(w));
   const ocean = r.add(SYS.ocean, createOceanEnvironment(w));
-  r.add(SYS.weather, createWeather(w, ocean));
+  r.add(SYS.weather, createWeather(w, sky));
   // wind 在 weather 之后：tick 读天气目标风速（惰性 getter，创建顺序无环）；
   // ocean/weather 的 tick 略先于 wind，消费上一帧的滚动量——一帧滞后不可感知。
   r.add(SYS.wind, createWindSystem(w));
