@@ -39,6 +39,9 @@ export interface StationSystemContext {
 
 import { Tickable } from '../lifecycle';
 
+/** 收集网世界坐标的复用向量（每帧最多写一次，避免逐网分配） */
+const netWorldPos = new THREE.Vector3();
+
 export class StationSystem implements Tickable {
   private ctx: StationSystemContext;
 
@@ -385,7 +388,9 @@ export class StationSystem implements Tickable {
 
       // 4. Collection Net Catching Debris
       if (s.type === 'collection_net') {
-        const netPos = s.mesh.position;
+        // 木筏随波起伏，比较时必须用收集网的世界坐标（不能用 raftGroup 内的局部坐标）
+        s.mesh.getWorldPosition(netWorldPos);
+        const netPos = netWorldPos;
         const trapped = s.data?.trappedItems || [];
         if (trapped.length < 3) {
           const debrisList = this.ctx.getDebrisList();

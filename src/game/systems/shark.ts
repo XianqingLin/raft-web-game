@@ -32,6 +32,8 @@ export interface SharkContext {
   getHookPos: () => THREE.Vector3;
   /** 洋流有效漂移速度（鱼肉漂移用，与 hook/debris 同源） */
   getEffectiveDrift: () => number;
+  /** 海面波形采样（鲨鱼/鱼肉贴水高度与渲染同一公式） */
+  getWaveHeight: (x: number, z: number) => number;
 }
 
 /** 管理器内部持有：实体数据 + 视图绑定 */
@@ -347,7 +349,9 @@ export class SharkSystem implements Tickable {
 
     // Realistic Turn-Rate Inertia, Banking Roll, and Pitch Dives
     const prevPos = sharkMesh.position.clone();
-    sharkMesh.position.set(shark.pos.x, shark.pos.y, shark.pos.z);
+    // 行为高度（巡游 -0.35 / 潜逃 -8 等）叠加海面起伏，鲨鱼贴着真实水面游
+    const waveY = this.ctx.getWaveHeight(shark.pos.x, shark.pos.z);
+    sharkMesh.position.set(shark.pos.x, shark.pos.y + waveY, shark.pos.z);
     const deltaMove = sharkMesh.position.clone().sub(prevPos);
 
     if (deltaMove.lengthSq() > 0.0001) {
@@ -507,7 +511,7 @@ export class SharkSystem implements Tickable {
       if (meat.caught) continue;
 
       meat.pos.z += effectiveDrift * dt * 0.7;
-      meat.pos.y = 0.08 + Math.sin(elapsed * 2.8 + meat.bobPhase) * 0.05;
+      meat.pos.y = this.ctx.getWaveHeight(meat.pos.x, meat.pos.z) + 0.08 + Math.sin(elapsed * 2.8 + meat.bobPhase) * 0.05;
       meat.mesh.position.copy(meat.pos);
       meat.mesh.rotation.y += 0.5 * dt;
 
@@ -558,6 +562,7 @@ export function createSharkSystem(w: WorldView): SharkSystem {
     getHookState: () => w.hook().hookState,
     getHookPos: () => w.hook().hookPos,
     getEffectiveDrift: () => OCEAN_DRIFT_BASE * w.build().driftSpeedMultiplier,
+    getWaveHeight: (x, z) => w.ocean().getWaveHeightAt(x, z),
   });
 
   return system;

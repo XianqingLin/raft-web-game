@@ -58,6 +58,8 @@ export interface BuildSystemContext {
   inventory: InventorySystem;
   /** 放置/拆除成功后触发自动存档（engine.saveWorld(false)） */
   onSave: () => void;
+  /** 海面波形采样（浮力与玩家支撑高度共用，与渲染 shader 同一公式） */
+  getWaveHeight: (x: number, z: number) => number;
 }
 
 import { Tickable } from '../lifecycle';
@@ -102,6 +104,44 @@ export class BuildSystem implements Tickable {
   constructor(ctx: BuildSystemContext) {
     this.ctx = ctx;
     ctx.scene.add(this.raftGroup);
+  }
+
+  // ==================== Raft Buoyancy ====================
+
+  /** 浮力采样点距筏心距离（前后/左右各一点，估算水面坡度） */
+  private static readonly BUOY_SAMPLE_DIST = 3;
+  /** 基础吃水：甲板基面沉入水面以下的深度（木筏半浸更真实） */
+  private static readonly RAFT_SUBMERGE = 0.12;
+  /** 倾斜上限（弧度）：玩法高度按筏心近似，倾角太大会让脚下高度失真 */
+  private static readonly MAX_TILT = 0.07;
+
+  /**
+   * 每帧：木筏随波起伏与倾斜（浮力）。
+   * 高度取筏心水面值，俯仰/横摇由前后/左右采样点高度差推得。
+   * 波形是解析函数、天然连续——直接赋值即可；任何平滑都会滞后，
+   * 波峰垂直速度可达 ~3m/s，damp(λ=6) 的 0.5m 滞后足以让木筏被波峰淹没。
+   */
+  private updateBuoyancy(_dt: number) {
+    const wh = this.ctx.getWaveHeight;
+    const dist = BuildSystem.BUOY_SAMPLE_DIST;
+    const hC = wh(0, 0);
+    const hN = wh(0, -dist);
+    const hS = wh(0, dist);
+    const hW = wh(-dist, 0);
+    const hE = wh(dist, 0);
+
+    const g = this.raftGroup;
+    g.position.y = hC - BuildSystem.RAFT_SUBMERGE;
+    g.rotation.x = THREE.MathUtils.clamp(
+      Math.atan2(hN - hS, dist * 2),
+      -BuildSystem.MAX_TILT,
+      BuildSystem.MAX_TILT
+    );
+    g.rotation.z = THREE.MathUtils.clamp(
+      Math.atan2(hE - hW, dist * 2),
+      -BuildSystem.MAX_TILT,
+      BuildSystem.MAX_TILT
+    );
   }
 
   // ==================== Initial Raft ====================
@@ -508,8 +548,10 @@ export class BuildSystem implements Tickable {
 
   // ==================== Build Mode Hologram Preview ====================
 
-  /** 每帧：建造全息预览（Tickable 统一入口） */
-  public update(_dt: number, _elapsed: number) {
+  /** 每帧：木筏浮力 + 建造全息预览（Tickable 统一入口） */
+  public update(dt: number, _elapsed: number) {
+    this.updateBuoyancy(dt);
+
     if (!this.isBuildMode) {
       this.destroyGhostMesh();
       this.ghostSnapCoord = null;
@@ -821,11 +863,13 @@ export class BuildSystem implements Tickable {
   public checkHorizontalCollision(newX: number, newZ: number, playerY: number, radius = 0.28): boolean {
     const feetY = playerY - 1.7;
     const headY = playerY + 0.1;
+    // 结构 mesh 的 y 是 raftGroup 局部坐标，玩家 y 是世界坐标——随浮力起伏必须补上筏体偏移
+    const raftY = this.raftGroup.position.y;
 
     for (const s of this.structures.values()) {
       if (s.type === 'wall' || s.type === 'window_wall' || s.type === 'fence') {
         const obsH = s.type === 'fence' ? 0.95 : WALL_HEIGHT;
-        const obsBottom = s.mesh.position.y;
+        const obsBottom = raftY + s.mesh.position.y;
         const obsTop = obsBottom + obsH;
 
         if (headY > obsBottom && feetY < obsTop) {
@@ -858,7 +902,7 @@ export class BuildSystem implements Tickable {
           }
         }
       } else if (s.type === 'pillar') {
-        const obsBottom = s.mesh.position.y;
+        const obsBottom = raftY + s.mesh.position.y;
         const obsTop = obsBottom + WALL_HEIGHT;
         if (headY > obsBottom && feetY < obsTop) {
           const dx = Math.abs(newX - s.mesh.position.x);
@@ -877,7 +921,7 @@ export class BuildSystem implements Tickable {
         const lz = dx * Math.sin(rotAngle) + dz * Math.cos(rotAngle);
 
         // Underside wall of high steps: cannot walk through back underside of stairs
-        if (lz > 0.25 && lz <= BLOCK_SIZE * 0.52 && feetY < BLOCK_HEIGHT / 2 + 0.6) {
+        if (lz > 0.25 && lz <= BLOCK_SIZE * 0.52 && feetY < raftY + BLOCK_HEIGHT / 2 + 0.6) {
           if (Math.abs(lx) <= BLOCK_SIZE * 0.44 + radius) {
             return true;
           }
@@ -894,10 +938,12 @@ export class BuildSystem implements Tickable {
   public calculateSurfaceHeight(px: number, py: number, pz: number, elapsed: number): number {
     let supportY = -Infinity;
     const feetY = py - 1.7;
+    // 甲板高度随木筏浮力起伏（raftGroup.position.y 由 updateBuoyancy 每帧更新）
+    const raftY = this.raftGroup.position.y;
 
     // 1. Check Foundation / Base Raft
     if (this.checkOnRaft(px, pz)) {
-      supportY = BLOCK_HEIGHT / 2;
+      supportY = raftY + BLOCK_HEIGHT / 2;
     }
 
     // 2. Check Upper Deck Floor (floor)
@@ -907,7 +953,7 @@ export class BuildSystem implements Tickable {
         const fz = s.gz * BLOCK_SIZE;
         const halfSize = BLOCK_SIZE / 2;
         if (Math.abs(px - fx) <= halfSize + 0.15 && Math.abs(pz - fz) <= halfSize + 0.15) {
-          const floorTop = BLOCK_HEIGHT / 2 + WALL_HEIGHT + 0.12;
+          const floorTop = raftY + BLOCK_HEIGHT / 2 + WALL_HEIGHT + 0.12;
           if (feetY >= floorTop - 0.75) {
             supportY = Math.max(supportY, floorTop);
           }
@@ -932,7 +978,7 @@ export class BuildSystem implements Tickable {
         if (Math.abs(lx) <= BLOCK_SIZE * 0.48 && Math.abs(lz) <= BLOCK_SIZE * 0.55) {
           const progress = (lz + BLOCK_SIZE / 2) / BLOCK_SIZE;
           const t = Math.max(0, Math.min(1, progress));
-          const stairSurface = BLOCK_HEIGHT / 2 + t * WALL_HEIGHT;
+          const stairSurface = raftY + BLOCK_HEIGHT / 2 + t * WALL_HEIGHT;
 
           if (feetY >= stairSurface - 0.65) {
             supportY = Math.max(supportY, stairSurface);
@@ -1017,5 +1063,6 @@ export function createBuildSystem(w: WorldView): BuildSystem {
     player: () => w.player().localPlayer,
     inventory: w.inventory(),
     onSave: () => w.saveWorld(),
+    getWaveHeight: (x, z) => w.ocean().getWaveHeightAt(x, z),
   });
 }

@@ -8,6 +8,7 @@ import { createRaftGame, RaftGame } from './game/raftGame';
 import { BuildingType } from './types/game';
 import { HUD } from './ui/components/HUD';
 import { InventoryCraftingModal } from './ui/components/InventoryCraftingModal';
+import { OceanDebugPanel } from './ui/components/OceanDebugPanel';
 import { PauseMenu } from './ui/components/PauseMenu';
 import { useUiStore } from './ui/uiStore';
 import { events } from './core/events';
@@ -36,6 +37,7 @@ export default function App() {
   // UI Modals & Overlays（弹窗开关是 UI 自己的状态；指针锁副作用留在 App）
   const [isPointerLocked, setIsPointerLocked] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
+  const [isOceanDebugOpen, setIsOceanDebugOpen] = useState(false);
   const [hookState, setHookState] = useState<string>('IDLE');
   const [hookPower, setHookPower] = useState(0);
   const [isBuildMode, setIsBuildMode] = useState(false);
@@ -47,6 +49,19 @@ export default function App() {
 
   const toggleInventory = useCallback(() => {
     setIsInventoryOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        document.exitPointerLock?.();
+      } else {
+        document.body.requestPointerLock?.();
+      }
+      return next;
+    });
+  }, []);
+
+  // 海面调参面板（Backquote）：打开退出指针锁以便拖滑杆，关闭恢复
+  const toggleOceanDebug = useCallback(() => {
+    setIsOceanDebugOpen((prev) => {
       const next = !prev;
       if (next) {
         document.exitPointerLock?.();
@@ -87,6 +102,9 @@ export default function App() {
     // 背包快捷键（I / Tab）经 inputActions 发出 toggleInventoryRequested
     const offToggleInventory = events.on('toggleInventoryRequested', () => toggleInventory());
 
+    // 海面调参面板快捷键（`）经 inputActions 发出 toggleOceanDebugRequested
+    const offToggleOceanDebug = events.on('toggleOceanDebugRequested', () => toggleOceanDebug());
+
     // 高频 HUD 值由 Raft 门面统一采样，React 不接触具体系统。
     const pollInterval = window.setInterval(() => {
       const current = gameRef.current;
@@ -105,6 +123,7 @@ export default function App() {
       offBuildingSelect();
       offOpenChest();
       offToggleInventory();
+      offToggleOceanDebug();
       document.removeEventListener('pointerlockchange', onPointerLockChange);
       game.dispose();
     };
@@ -230,9 +249,14 @@ export default function App() {
         stats={stats}
       />
 
+      {/* 海面调参面板（Backquote 开关；打开期间抑制暂停菜单） */}
+      {isOceanDebugOpen && gameRef.current && (
+        <OceanDebugPanel game={gameRef.current} onClose={toggleOceanDebug} />
+      )}
+
       {/* Pause & Start Splash Screen */}
       <PauseMenu
-        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest}
+        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest && !isOceanDebugOpen}
         onResume={requestLock}
         onRespawn={handleRespawn}
         onSaveWorld={handleSaveWorld}

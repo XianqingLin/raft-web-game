@@ -32,6 +32,8 @@ export interface HookSystemContext {
   getActiveToolAction: () => ToolActionKind | null;
   /** 漂浮物活数组（钩取时原地标记 caught 并移除） */
   getDebrisList: () => DebrisObject[];
+  /** 海面波形采样（钩子落水/漂浮高度与渲染同一公式） */
+  getWaveHeight: (x: number, z: number) => number;
   addItemToInventory: (id: ResourceId, count: number) => void;
 }
 
@@ -174,8 +176,9 @@ export class HookSystem implements Tickable {
         this.hookPos.addScaledVector(this.hookVel, dt);
         this.hookMesh.lookAt(this.hookPos.clone().add(this.hookVel));
 
-        if (this.hookPos.y <= 0.08) {
-          this.hookPos.y = 0.08;
+        const waterY = this.ctx.getWaveHeight(this.hookPos.x, this.hookPos.z) + 0.05;
+        if (this.hookPos.y <= waterY) {
+          this.hookPos.y = waterY;
           this.hookState = 'FLOATING';
           soundManager.playWaterSplash(0.8);
         }
@@ -184,7 +187,7 @@ export class HookSystem implements Tickable {
         }
       } else if (this.hookState === 'FLOATING') {
         this.hookPos.z += this.ctx.getEffectiveDrift() * dt;
-        this.hookPos.y = 0.05 + Math.sin(elapsed * 3.5) * 0.04;
+        this.hookPos.y = this.ctx.getWaveHeight(this.hookPos.x, this.hookPos.z) + 0.05;
         if (this.hookPos.distanceTo(playerPos) > 56) {
           this.hookState = 'RETRACTING';
         }
@@ -270,6 +273,7 @@ export function createHookSystem(w: WorldView): HookSystem {
       return id ? (ITEM_DEFINITIONS[id]?.primaryAction ?? null) : null;
     },
     getDebrisList: () => w.debris().items,
+    getWaveHeight: (x, z) => w.ocean().getWaveHeightAt(x, z),
     addItemToInventory: (id, count) => w.inventory().addItemToInventory(id, count),
   });
 }

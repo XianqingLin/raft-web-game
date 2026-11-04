@@ -21,6 +21,8 @@ export interface DebrisSystemContext {
   scene: THREE.Scene;
   /** 洋流有效漂移速度（与 hook/shark 同源） */
   getDrift: () => number;
+  /** 海面波形采样（漂浮起伏与渲染同一公式） */
+  getWaveHeight: (x: number, z: number) => number;
 }
 
 const SPAWN_INTERVAL = 3.4;
@@ -107,7 +109,11 @@ export class DebrisSystem implements Tickable {
       if (d.caught) continue;
 
       d.mesh.position.z += drift * dt;
-      d.mesh.position.y = Math.sin(elapsed * 2.2 + d.bobPhase) * 0.05 + 0.02;
+      // 随真实波形起伏，叠加自身小幅摆动
+      d.mesh.position.y =
+        this.ctx.getWaveHeight(d.mesh.position.x, d.mesh.position.z) +
+        Math.sin(elapsed * 2.2 + d.bobPhase) * 0.05 +
+        0.02;
       d.mesh.rotation.y += d.rotSpeed * dt;
 
       if (d.mesh.position.z > DESPAWN_Z) {
@@ -130,5 +136,6 @@ export function createDebrisSystem(w: WorldView): DebrisSystem {
   return new DebrisSystem({
     scene: w.scene,
     getDrift: () => OCEAN_DRIFT_BASE * w.build().driftSpeedMultiplier,
+    getWaveHeight: (x, z) => w.ocean().getWaveHeightAt(x, z),
   });
 }

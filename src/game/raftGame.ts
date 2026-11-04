@@ -14,7 +14,7 @@ import {
 } from './systems';
 import type { BuildSystem } from './systems/build';
 import type { DebrisSystem } from './systems/debris';
-import type { OceanEnvironment } from './systems/environment/ocean';
+import type { OceanEnvironment, OceanTuning } from './systems/environment/ocean';
 import type { WeatherSystem } from './systems/environment/weather';
 import type { HookState, HookSystem } from './systems/hook';
 import type { InteractionSystem } from './systems/interact';
@@ -46,6 +46,10 @@ export interface RaftGameCommands {
   respawn(): void;
   saveWorld(notify?: boolean): WorldSaveData;
   resetWorld(): void;
+  /** 海面调参（调试面板用）：读取副本 / 合并写入 / 恢复默认 */
+  getOceanTuning(): OceanTuning;
+  setOceanTuning(partial: Partial<OceanTuning>): void;
+  resetOceanTuning(): void;
 }
 
 /** 已完整组装的 Raft 应用。具体系统知识集中在这个应用门面和组合根。 */
@@ -81,6 +85,15 @@ export class RaftGame {
       },
       resetWorld: () => {
         resetRaftWorld(this.systems, this.definition);
+      },
+      getOceanTuning: () => {
+        return this.systems.get<OceanEnvironment>(SYS.ocean).getTuning();
+      },
+      setOceanTuning: (partial) => {
+        this.systems.get<OceanEnvironment>(SYS.ocean).setTuning(partial);
+      },
+      resetOceanTuning: () => {
+        this.systems.get<OceanEnvironment>(SYS.ocean).resetTuning();
       },
     };
   }

@@ -45,6 +45,8 @@ export interface GameEvents {
   openChestRequested: PlacedStructure | null;
   /** 请求 UI 切换背包弹窗（指针锁副作用由 App 处理） */
   toggleInventoryRequested: void;
+  /** 请求 UI 开关海面调参面板（指针锁副作用由 App 处理） */
+  toggleOceanDebugRequested: void;
 }
 
 type Handler<T> = (payload: T) => void;

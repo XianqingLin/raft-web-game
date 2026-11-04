@@ -22,7 +22,8 @@ export type GameAction =
   | 'toggleInventory'
   | 'toggleBuild'
   | 'rotatePiece'
-  | 'toggleDemolish';
+  | 'toggleDemolish'
+  | 'toggleOceanDebug';
 
 export const KEY_BINDINGS: Record<GameAction, string[]> = {
   moveForward: ['KeyW', 'ArrowUp'],
@@ -34,6 +35,7 @@ export const KEY_BINDINGS: Record<GameAction, string[]> = {
   toggleBuild: ['KeyB'],
   rotatePiece: ['KeyR'],
   toggleDemolish: ['KeyX'],
+  toggleOceanDebug: ['Backquote'],
 };
 
 // code -> actions 反查表（模块加载时构建一次，运行期只读）

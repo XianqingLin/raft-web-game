@@ -28,6 +28,8 @@ const MAX_PITCH = Math.PI / 2 - 0.05;
 export interface PlayerSystemContext {
   camera: THREE.PerspectiveCamera;
   build: () => BuildSystem;
+  /** 海面波形采样（水面眼高/游泳浮力与渲染同一公式） */
+  getWaveHeight: (x: number, z: number) => number;
   /** 动作级按键轮询（键位定义在 engine/inputMap.ts） */
   isActionDown: (action: GameAction) => boolean;
   getPointerLocked: () => boolean;
@@ -131,7 +133,7 @@ export class PlayerSystem implements Tickable {
       const standingOnRaft = this.ctx.build().checkOnRaft(player.pos.x, player.pos.z);
       const targetEyeY = this.ctx.build().calculateSurfaceHeight(player.pos.x, player.pos.y, player.pos.z, elapsed);
       const isSolidGround = targetEyeY !== -Infinity;
-      const waterSurfaceEyeY = 0.65 + Math.sin(elapsed * 2.5) * 0.08;
+      const waterSurfaceEyeY = this.ctx.getWaveHeight(player.pos.x, player.pos.z) + 0.65;
 
       // Physically in water ONLY when not on solid ground and near or below water surface
       player.inWater = !isSolidGround && player.pos.y <= waterSurfaceEyeY + 0.25;
@@ -179,7 +181,7 @@ export class PlayerSystem implements Tickable {
 
     // Gravity & Ground Height (Foundations, Stairs, Upper Deck)
     const targetFloorY = this.ctx.build().calculateSurfaceHeight(player.pos.x, player.pos.y, player.pos.z, elapsed);
-    const waterSurfaceEyeY = 0.65 + Math.sin(elapsed * 2.5) * 0.08;
+    const waterSurfaceEyeY = this.ctx.getWaveHeight(player.pos.x, player.pos.z) + 0.65;
 
     // Ceiling bump check when jumping under second-story upper deck floor
     for (const s of this.ctx.build().structures.values()) {
@@ -187,7 +189,7 @@ export class PlayerSystem implements Tickable {
         const fx = s.gx * BLOCK_SIZE;
         const fz = s.gz * BLOCK_SIZE;
         if (Math.abs(player.pos.x - fx) <= BLOCK_SIZE / 2 && Math.abs(player.pos.z - fz) <= BLOCK_SIZE / 2) {
-          const ceilingY = BLOCK_HEIGHT / 2 + WALL_HEIGHT;
+          const ceilingY = this.ctx.build().raftGroup.position.y + BLOCK_HEIGHT / 2 + WALL_HEIGHT;
           if (player.pos.y + 0.15 > ceilingY && player.pos.y - 1.7 < ceilingY - 0.4) {
             player.pos.y = ceilingY - 0.15;
             player.vel.y = 0;
@@ -199,15 +201,23 @@ export class PlayerSystem implements Tickable {
     if (targetFloorY !== -Infinity) {
       // Solid ground physics (on raft foundation, stairs, or upper floor)
       player.inWater = false;
-      player.vel.y -= 18.0 * dt;
-      player.pos.y += player.vel.y * dt;
 
-      if (player.pos.y <= targetFloorY) {
+      if (player.onGround && player.pos.y >= targetFloorY - 0.4) {
+        // 移动平台跟随：木筏随波起伏，站立时脚下高度直接同步甲板，
+        // 不走重力——否则上升靠吸附、下降靠自由落体追赶，视觉抖动且永远滞后
         player.pos.y = targetFloorY;
         player.vel.y = 0;
-        player.onGround = true;
-      } else if (player.pos.y > targetFloorY + 0.1) {
-        player.onGround = false;
+      } else {
+        player.vel.y -= 18.0 * dt;
+        player.pos.y += player.vel.y * dt;
+
+        if (player.pos.y <= targetFloorY) {
+          player.pos.y = targetFloorY;
+          player.vel.y = 0;
+          player.onGround = true;
+        } else if (player.pos.y > targetFloorY + 0.1) {
+          player.onGround = false;
+        }
       }
     } else {
       // Not on solid ground
@@ -329,6 +339,7 @@ export function createPlayerSystem(w: WorldView): PlayerSystem {
     isActionDown: w.isActionDown,
     getPointerLocked: w.isPointerLocked,
     build: () => w.build(),
+    getWaveHeight: (x, z) => w.ocean().getWaveHeightAt(x, z),
   });
 
   return system;

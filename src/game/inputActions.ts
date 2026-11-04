@@ -23,4 +23,5 @@ export const KEY_ACTION_HANDLERS: Partial<Record<GameAction, (w: WorldView) => v
       w.build().toggleDemolishMode();
     }
   },
+  toggleOceanDebug: () => events.emit('toggleOceanDebugRequested', undefined),
 };
