@@ -28,8 +28,6 @@ export interface OceanTuning {
   baseOffset: number;
   /** 细节法线强度（波光粼粼程度；0 = 关闭） */
   detailStrength: number;
-  /** 泡沫量（浪尖白沫，0 = 无沫） */
-  foamAmount: number;
   /** 调试网格线显隐（面板开关） */
   gridVisible: boolean;
 }
@@ -45,7 +43,6 @@ export const DEFAULT_OCEAN_TUNING: OceanTuning = {
   timeScale: 1.0,
   baseOffset: -0.1,
   detailStrength: 1.0,
-  foamAmount: 0.55,
   gridVisible: false,
 };
 
@@ -81,11 +78,10 @@ uniform vec4 uWaveSpeed;
 uniform vec4 uWaveAmp;
 uniform vec4 uWavePhase;
 
-// 传给片元阶段：波面高度/陡度用于浪尖泡沫，世界坐标用于细节法线与 Fresnel
+// 传给片元阶段：波面高度用于波峰提亮，世界坐标用于细节法线与 Fresnel
 varying vec2 vOceanXZ;
 varying vec3 vOceanWorld;
 varying float vOceanH;
-varying float vOceanSlope;
 
 float oceanWave(vec2 p) {
   float h =
@@ -113,20 +109,18 @@ vec2 oceanWaveGradient(vec2 p) {
 `;
 
 /**
- * 片元阶段注入：程序化水色（Fresnel 双色 + 波峰天色提亮）、微法线扰动、泡沫。
+ * 片元阶段注入：程序化水色（Fresnel 双色 + 波峰天色提亮）、微法线扰动。
  * viewMatrix/cameraPosition 由 three 的片元前缀自带；网格无变换，法线世界空间可逆变换。
  */
 const OCEAN_FRAGMENT_GLSL = /* glsl */ `
 uniform float uTime;
 uniform float uDetailStrength;
-uniform float uFoamAmount;
 uniform vec3 uColorDeep;
 uniform vec3 uColorShallow;
 uniform vec3 uSkyColor;
 varying vec2 vOceanXZ;
 varying vec3 vOceanWorld;
 varying float vOceanH;
-varying float vOceanSlope;
 
 float oceanHash(vec2 p) {
   p = fract(p * vec2(123.34, 345.45));
@@ -225,7 +219,6 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
     uColorShallow: { value: new THREE.Color(0x0284c7) },
     uSkyColor: { value: new THREE.Color(0x87ceeb) },
     uDetailStrength: { value: DEFAULT_OCEAN_TUNING.detailStrength },
-    uFoamAmount: { value: DEFAULT_OCEAN_TUNING.foamAmount },
   };
 
   oceanMat.onBeforeCompile = (shader) => {
@@ -246,47 +239,29 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
   transformed.y += oceanH;
   vOceanXZ = position.xz;
   vOceanWorld = transformed;
-  vOceanH = oceanH;
-  vOceanSlope = length(oceanG);`
+  vOceanH = oceanH;`
       );
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `${OCEAN_FRAGMENT_GLSL}\n#include <common>`)
       .replace(
-        '#include <color_fragment>',
-        `#include <color_fragment>
-  // 泡沫掩码：陡度超过阈值 + 噪声打碎成不规则沫花（暴风雨坡度翻倍，白沫自动增多）
-  float oceanThr = mix(0.16, 0.075, uFoamAmount);
-  float oceanBreak = oceanFbm(vOceanXZ * 1.35 + vec2(uTime * 0.4, uTime * 0.31));
-  float oceanFoamMask = smoothstep(oceanThr, oceanThr + 0.05, vOceanSlope)
-    * smoothstep(0.3, 0.72, oceanBreak);`
-      )
-      .replace(
         '#include <normal_fragment_begin>',
         `#include <normal_fragment_begin>
-  {
-    // 网格无变换（modelMatrix = I），法线可在世界空间重建/扰动后再转回视空间
-    mat3 oceanV = mat3(viewMatrix);
-    vec3 oceanWN = transpose(oceanV) * normal;
-    // 微法线扰动：三层滚动噪声梯度 -> 波光粼粼（PBR 镜面高光随之碎闪 = 太阳耀斑）
-    // 距离衰减：远处高频噪声会走样成闪烁噪点，随距离淡出
-    float oceanFade = clamp(1.0 - (length(cameraPosition - vOceanWorld) - 18.0) / 55.0, 0.2, 1.0);
-    vec2 oceanGd = oceanDetailGrad(vOceanXZ, uTime);
-    oceanWN = normalize(oceanWN + vec3(-oceanGd.x, 0.0, -oceanGd.y) * 0.11 * uDetailStrength * oceanFade);
-    normal = oceanV * oceanWN;
-    // Fresnel 双色：正视看深水色，掠射角混天色（假反射）；波峰向天色提亮
-    vec3 oceanVdir = normalize(cameraPosition - vOceanWorld);
-    float oceanFres = pow(1.0 - clamp(dot(oceanWN, oceanVdir), 0.0, 1.0), 3.0);
-    vec3 oceanWater = mix(uColorDeep, uColorShallow, oceanFres);
-    oceanWater += uSkyColor * clamp(vOceanH, 0.0, 1.0) * 0.1;
-    diffuseColor.rgb = mix(diffuseColor.rgb, oceanWater, 0.92);
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), oceanFoamMask * 0.85);
-  }`
-      )
-      .replace(
-        '#include <roughnessmap_fragment>',
-        `#include <roughnessmap_fragment>
-  roughnessFactor = mix(roughnessFactor, 0.82, oceanFoamMask);`
+  // 网格无变换（modelMatrix = I），法线可在世界空间重建/扰动后再转回视空间
+  mat3 oceanV = mat3(viewMatrix);
+  vec3 oceanWN = transpose(oceanV) * normal;
+  vec3 oceanVdir = normalize(cameraPosition - vOceanWorld);
+  // 距离衰减：远处高频噪声会走样成闪烁噪点，随距离淡出
+  float oceanFade = clamp(1.0 - (length(cameraPosition - vOceanWorld) - 18.0) / 55.0, 0.2, 1.0);
+  // 微法线扰动：三层滚动噪声梯度 -> 波光粼粼（PBR 镜面高光随之碎闪）
+  vec2 oceanGd = oceanDetailGrad(vOceanXZ, uTime);
+  oceanWN = normalize(oceanWN + vec3(-oceanGd.x, 0.0, -oceanGd.y) * 0.11 * uDetailStrength * oceanFade);
+  normal = oceanV * oceanWN;
+  // Fresnel 双色：正视看深水色，掠射角混天色（假反射）；波峰向天色提亮
+  float oceanFres = pow(1.0 - clamp(dot(oceanWN, oceanVdir), 0.0, 1.0), 3.0);
+  vec3 oceanWater = mix(uColorDeep, uColorShallow, oceanFres);
+  oceanWater += uSkyColor * clamp(vOceanH, 0.0, 1.0) * 0.1;
+  diffuseColor.rgb = mix(diffuseColor.rgb, oceanWater, 0.92);`
       );
   };
   // 注入版 shader 单独建缓存键，避免与未注入的同材质共享程序
@@ -386,7 +361,6 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
       waveUniforms.uSkyColor.value.copy(scene.background);
     }
     waveUniforms.uDetailStrength.value = tuning.detailStrength;
-    waveUniforms.uFoamAmount.value = tuning.foamAmount;
 
     oceanGrid.visible = tuning.gridVisible;
   };
@@ -402,7 +376,6 @@ export function createOceanEnvironment(w: WorldView): OceanEnvironment {
     if (partial.timeScale !== undefined) tuning.timeScale = partial.timeScale;
     if (partial.baseOffset !== undefined) tuning.baseOffset = partial.baseOffset;
     if (partial.detailStrength !== undefined) tuning.detailStrength = partial.detailStrength;
-    if (partial.foamAmount !== undefined) tuning.foamAmount = partial.foamAmount;
     if (partial.gridVisible !== undefined) tuning.gridVisible = partial.gridVisible;
   };
 

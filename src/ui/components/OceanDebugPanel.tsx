@@ -126,14 +126,6 @@ export function OceanDebugPanel({ game, onClose }: OceanDebugPanelProps) {
           step={0.05}
           onChange={(v) => apply({ detailStrength: v })}
         />
-        <SliderRow
-          label="浪尖泡沫"
-          value={tuning.foamAmount}
-          min={0}
-          max={1}
-          step={0.05}
-          onChange={(v) => apply({ foamAmount: v })}
-        />
         <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
           <input
             type="checkbox"
