@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { ResourceId } from '../../types/game';
 import { DebrisObject } from '../entities/debris';
 import { createDebrisMesh } from '../visuals/debris';
-import { OCEAN_DRIFT_BASE } from '../environment/ocean';
+import { OCEAN_DRIFT_BASE } from './environment/ocean';
 import { Tickable } from '../lifecycle';
 
 /**

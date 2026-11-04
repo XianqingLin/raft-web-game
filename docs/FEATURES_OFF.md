@@ -8,6 +8,9 @@
 | 成就系统 | `90c4c17` | 2026-11-03 | `src/game/achievements.ts`, `src/components/AchievementToast.tsx` |
 | 剧情/地标/信号阵列 | 本 commit | 2026-11-03 | `src/game/landmarks.ts`, `src/data/storyLandmarks.ts`, `src/components/StoryJournalModal.tsx`, `src/components/RadarWidget.tsx` |
 | 多人模式 | 本 commit | 2026-11-03 | `src/game/multiplayer.ts`, `server.ts`, 见 §3 |
+| 程序化岛屿与采集 | 无独立 commit（2026-11-04 工作区删除） | 2026-11-04 | `src/game/systems/environment/islands.ts`，见 §4 |
+| 钓鱼 | 无独立 commit（2026-11-04 工作区删除） | 2026-11-04 | `src/game/systems/fishing.ts`，见 §5 |
+| 漂流商人与交易 | 无独立 commit（2026-11-04 工作区删除） | 2026-11-04 | `src/game/systems/merchant.ts`, `src/data/merchant.ts`, `src/ui/components/MerchantModal.tsx`，见 §6 |
 
 ---
 
@@ -51,9 +54,8 @@ toast,但没有任何 `achievementManager.track*()` 调用,里程碑永远不会
 **恢复要点**:
 - 地标几何与交互: `landmarks.ts` 的 LandmarkManager (含 `interact` /
   `checkInteraction` / `getHeightAt` / `update`)
-- 数据: `storyLandmarks.ts` 的 `STORY_LOCATIONS`;注意 `MERCHANT_ITEMS` 已迁至
-  `src/data/merchant.ts` (商人系统保留),恢复时 story 专属货物 power_cell /
-  locator_node 加回 merchant.ts
+- 数据: `storyLandmarks.ts` 的 `STORY_LOCATIONS`;旧 `MERCHANT_ITEMS` 已随商人系统
+  删除 (见 §6),恢复剧情时需要重新决定 power_cell / locator_node 的获取途径
 - 物品/配方: `power_cell` / `locator_node` 物品定义、`craft_signal_receiver` /
   `craft_locator_antenna` 配方、两个建筑定义 (itemsAndRecipes.ts)
 - mesh: models.ts 的 `createSignalReceiverMesh` / `createLocatorAntennaMesh`
@@ -103,3 +105,54 @@ toast,但没有任何 `achievementManager.track*()` 调用,里程碑永远不会
   广播接线、UI 徽章;`ws` / `express` 依赖随删除一并移除,恢复时重新安装
 - 存档: 现在 saveWorld 只写 localStorage (storage.ts);多人存档当时走服务器
   房间 JSON,恢复时另行设计
+
+## 4. 程序化岛屿与采集 (Procedural Islands & Gathering)
+
+**移除日期**: 2026-11-04（本次工作区修改，无独立移除 commit）
+
+**移除理由**: 当前岛屿完全由程序化几何体生成。后续希望直接使用外部岛屿模型，
+因此先移除整套旧实现，不在旧地形系统上继续投入。届时重新设计模型加载、碰撞与
+交互，而不是原样恢复程序化建模代码。
+
+**移除范围**:
+- `IslandSystem`、程序化岛屿模型、地形高度采样与资源节点
+- 游戏定义中的默认岛屿配置
+- 玩家与建筑系统的岛屿地形高度分支
+- 准星岛屿资源采集、采集提示与 `playGather()` 音效
+
+**保留内容**: `coconut` / `berry` / `egg` / `feather` 等物品 ID 和定义仍保留，
+用于兼容已有存档及现有物品体系。依赖岛屿采集的自然获取入口目前已关闭；
+重新引入岛屿模型时，再决定哪些资源和交互随新场景恢复。
+
+## 5. 钓鱼 (Fishing)
+
+**移除日期**: 2026-11-04（本次工作区修改，无独立移除 commit）
+
+**移除理由**: 当前阶段先缩减玩法范围，钓鱼系统整体移除，后续需要时按新玩法重新设计。
+
+**移除范围**:
+- `FishingSystem` 及浮漂、鱼线、气泡、水花和跃鱼表现
+- 抛竿、等待、鱼靠近、咬钩、收线与渔获结算
+- `fishing_rod` 物品、鱼竿配方、第一人称鱼竿模型和鱼竿耐久消耗
+- 钓鱼专用音效与工具切换/左键交互接线
+
+**保留内容**: `raw_fish` / `cooked_fish` 物品及烧烤、鲨鱼饵等相关配方保留，
+以兼容旧存档并避免额外删除食物体系；目前生鱼没有正常的自然获取来源，
+仅旧存档中的存货或后续新增来源可以使用。通用收线音效仍被钩索和建筑使用，未删除。
+
+## 6. 漂流商人与交易 (Merchant & Barter)
+
+**移除日期**: 2026-11-04（本次工作区修改，无独立移除 commit）
+
+**移除理由**: 当前阶段继续缩减玩法与场景内容，移除漂流商人 NPC、交易面板和经济接线。
+
+**移除范围**:
+- `MerchantSystem` / `MerchantEntity`、默认商人位置和程序化商人筏模型
+- `MerchantItem` 类型、交易商品目录、`buyMerchantItem` 交易结算和 Raft 门面命令
+- `MerchantModal`、HUD 商人按钮、近距离交易提示和相关 React 状态
+- 仅服务于商人面板的 E 键动作；其他交互提示改为仅显示左键
+
+**保留内容**: 压缩机及其 `salvaged_scrap_block` 产出仍保留，但废料块暂时没有
+交易消费途径。原商品 `titanium_ingot` / `ironwood` 的物品 ID 和定义为兼容旧存档
+而保留，其商人购买来源已关闭；`metal_ingot` / `shark_bait` 仍有各自配方。
+未来若恢复经济系统，应重新设计获取与消费循环，不默认沿用旧商人目录。

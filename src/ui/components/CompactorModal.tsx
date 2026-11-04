@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { InventorySlot, HotbarSlot, ResourceId } from '../types/game';
+import { InventorySlot, HotbarSlot, ResourceId } from '../../types/game';
 
 interface CompactorModalProps {
   isOpen: boolean;

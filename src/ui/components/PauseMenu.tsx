@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Play, Volume2, VolumeX, RotateCcw, Compass, Save, RefreshCw } from 'lucide-react';
-import { soundManager } from '../audio/soundManager';
+import { soundManager } from '../../audio/soundManager';
 
 interface PauseMenuProps {
   isOpen: boolean;

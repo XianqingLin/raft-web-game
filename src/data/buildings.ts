@@ -130,7 +130,7 @@ export const BUILDING_DEFINITIONS: Record<
     name: 'Debris Compactor',
     cost: { wood: 6, plastic: 4, scrap: 4, bolt: 2 },
     icon: '🗜️',
-    description: 'Compress 10 ocean junk pieces into Salvaged Scrap Blocks for merchant trading.',
+    description: 'Compress 10 ocean junk pieces into Salvaged Scrap Blocks.',
     snappableTo: 'raft',
   },
 };

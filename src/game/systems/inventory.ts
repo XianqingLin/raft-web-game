@@ -20,10 +20,10 @@ export interface InventoryCallbacks {
 
 export interface InventoryContext {
   callbacks: InventoryCallbacks;
-  player: PlayerState;
+  player: () => PlayerState;
   /** Recipe targets a building: engine enters build mode pre-selected. */
   onReadyToBuild: (building: BuildingType) => void;
-  /** Active hotbar slot changed: engine re-equips tool, toggles build/fishing. */
+  /** Active hotbar slot changed: engine re-equips tool and toggles build mode. */
   onToolSlotChanged: (itemId: ItemId | null) => void;
 }
 
@@ -46,13 +46,15 @@ export class InventorySystem {
   }));
 
   private ctx: InventoryContext;
-  private player: PlayerState;
   private callbacks: InventoryCallbacks;
 
   constructor(ctx: InventoryContext) {
     this.ctx = ctx;
-    this.player = ctx.player;
     this.callbacks = ctx.callbacks;
+  }
+
+  private get player(): PlayerState {
+    return this.ctx.player();
   }
 
   public setActiveHotbarSlot(idx: number) {
@@ -302,18 +304,6 @@ export class InventorySystem {
     return true;
   }
 
-  /** 手持鱼竿捕获成功后消耗 1 点耐久；归零时鱼竿损坏（消耗规则与 consumeSlot 同属本系统） */
-  public consumeRodDurability() {
-    const slot = this.hotbar[this.activeHotbarIdx];
-    if (!slot || slot.itemId !== 'fishing_rod' || slot.durability === undefined) return;
-
-    slot.durability -= 1;
-    if (slot.durability <= 0) {
-      slot.itemId = null;
-      this.callbacks.onToast('Your Fishing Rod broke!', '#ef4444');
-    }
-    this.callbacks.onHotbarChange([...this.hotbar], this.activeHotbarIdx);
-  }
 }
 
 // ==================== Factory（由 Raft 组合根统一接线） ====================
@@ -326,7 +316,7 @@ export function createInventorySystem(w: WorldView): InventorySystem {
       onInventoryChange: (inv) => w.ui.onInventoryChange(inv),
       onStatsChange: (stats) => w.ui.onStatsChange(stats),
     },
-    player: w.player().localPlayer,
+    player: () => w.player().localPlayer,
     onReadyToBuild: (building) => w.build().enterBuildMode(building),
     onToolSlotChanged: (itemId) => {
       const inv = w.inventory();
@@ -335,10 +325,6 @@ export function createInventorySystem(w: WorldView): InventorySystem {
         w.build().enterBuildMode();
       } else if (w.build().isBuildMode) {
         w.build().exitBuildMode();
-      }
-      const fishing = w.fishing();
-      if (itemId !== 'fishing_rod' && fishing && fishing.state !== 'IDLE') {
-        fishing.reset();
       }
     },
   });

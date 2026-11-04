@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { WorldView } from '../worldView';
+import type { WorldView } from '../../worldView';
 
 /** 海面漂流基准速度（木筏/漂浮物随波漂移；BuildSystem 的帆 multiplier 在此基础上缩放） */
 export const OCEAN_DRIFT_BASE = 1.9;

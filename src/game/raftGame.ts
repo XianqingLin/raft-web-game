@@ -1,11 +1,10 @@
 import type {
   BuildingType,
   ItemId,
-  MerchantItem,
   WorldSaveData,
 } from '../types/game';
 import { events } from '../core/events';
-import { DEFAULT_WORLD, type WorldDefinition } from '../data/worldDefinition';
+import { DEFAULT_RAFT_GAME, type RaftGameDefinition } from '../data/gameDefinition';
 import { GameEngine } from './engine/gameEngine';
 import { SystemRegistry } from './lifecycle';
 import { RaftInputHandler } from './raftInput';
@@ -15,7 +14,18 @@ import {
   createSystems,
   resetRaftWorld,
 } from './systems';
-import type { HookState } from './systems/hook';
+import type { BuildSystem } from './systems/build';
+import type { DebrisSystem } from './systems/debris';
+import type { OceanEnvironment } from './systems/environment/ocean';
+import type { WeatherSystem } from './systems/environment/weather';
+import type { HookState, HookSystem } from './systems/hook';
+import type { InteractionSystem } from './systems/interact';
+import type { InventorySystem } from './systems/inventory';
+import type { PlayerSystem } from './systems/player';
+import type { SaveSystem } from './systems/save';
+import type { SharkSystem } from './systems/shark';
+import type { StationSystem } from './systems/stations';
+import type { TimeSystem } from './systems/time';
 import type { GameCallbacks, WorldCallbacks } from './ui';
 import type { WorldView } from './worldView';
 
@@ -39,7 +49,6 @@ export interface RaftGameCommands {
   respawn(): void;
   feedCompactorJunk(itemId: ItemId, count: number): boolean;
   forgeCompactorBlock(): boolean;
-  buyMerchantItem(item: MerchantItem): boolean;
   saveWorld(notify?: boolean): WorldSaveData;
   resetWorld(): void;
 }
@@ -51,39 +60,36 @@ export class RaftGame {
   constructor(
     private engine: GameEngine,
     private systems: SystemRegistry,
-    private definition: WorldDefinition,
+    private definition: RaftGameDefinition,
     private ui: WorldCallbacks,
   ) {
     this.commands = {
       selectHotbarSlot: (index) => {
-        this.systems.get(SYS.inventory).setActiveHotbarSlot(index);
+        this.systems.get<InventorySystem>(SYS.inventory).setActiveHotbarSlot(index);
       },
       consumeSlot: (isInventory, index) => {
-        return this.systems.get(SYS.inventory).consumeSlot(isInventory, index);
+        return this.systems.get<InventorySystem>(SYS.inventory).consumeSlot(isInventory, index);
       },
       craftRecipe: (recipeId) => {
-        return this.systems.get(SYS.inventory).craftRecipe(recipeId);
+        return this.systems.get<InventorySystem>(SYS.inventory).craftRecipe(recipeId);
       },
       selectBuilding: (type) => {
-        this.systems.get(SYS.build).selectBuildingType(type);
+        this.systems.get<BuildSystem>(SYS.build).selectBuildingType(type);
       },
       toggleBuildMode: () => {
-        this.systems.get(SYS.build).toggleBuildMode();
+        this.systems.get<BuildSystem>(SYS.build).toggleBuildMode();
       },
       respawn: () => {
-        this.systems.get(SYS.player).respawnPlayer();
+        this.systems.get<PlayerSystem>(SYS.player).respawnPlayer();
       },
       feedCompactorJunk: (itemId, count) => {
-        return this.systems.get(SYS.stations).feedCompactorJunk(itemId, count);
+        return this.systems.get<StationSystem>(SYS.stations).feedCompactorJunk(itemId, count);
       },
       forgeCompactorBlock: () => {
-        return this.systems.get(SYS.stations).forgeCompactorBlock();
-      },
-      buyMerchantItem: (item) => {
-        return this.systems.get(SYS.stations).buyMerchantItem(item);
+        return this.systems.get<StationSystem>(SYS.stations).forgeCompactorBlock();
       },
       saveWorld: (notify = true) => {
-        return this.systems.get(SYS.save).save(notify);
+        return this.systems.get<SaveSystem>(SYS.save).save(notify);
       },
       resetWorld: () => {
         resetRaftWorld(this.systems, this.definition, this.ui);
@@ -100,9 +106,9 @@ export class RaftGame {
   }
 
   public sampleHud(): RaftHudState {
-    const hook = this.systems.get(SYS.hook);
-    const build = this.systems.get(SYS.build);
-    const shark = this.systems.get(SYS.shark);
+    const hook = this.systems.get<HookSystem>(SYS.hook);
+    const build = this.systems.get<BuildSystem>(SYS.build);
+    const shark = this.systems.get<SharkSystem>(SYS.shark);
     return {
       hookState: hook.hookState,
       hookPower: hook.hookPower,
@@ -119,13 +125,13 @@ export class RaftGame {
 }
 
 /**
- * Raft 应用组合根：唯一同时认识引擎、具体系统名单、世界定义和 UI 接线的入口。
+ * Raft 应用组合根：唯一同时认识引擎、具体系统名单、游戏定义和 UI 接线的入口。
  * GameEngine 只接收完整的通用模块，不参与任何具体系统创建。
  */
 export function createRaftGame(
   container: HTMLElement,
   callbacks: GameCallbacks,
-  definition: WorldDefinition = DEFAULT_WORLD,
+  definition: RaftGameDefinition = DEFAULT_RAFT_GAME,
 ): RaftGame {
   const engine = new GameEngine(container);
   const ui: WorldCallbacks = {
@@ -140,22 +146,19 @@ export function createRaftGame(
     isActionDown: (action) => engine.input.isDown(action),
     isPointerLocked: () => engine.input.isPointerLocked,
     definition,
-    player: () => systems.get(SYS.player),
-    inventory: () => systems.get(SYS.inventory),
-    debris: () => systems.get(SYS.debris),
-    build: () => systems.get(SYS.build),
-    hook: () => systems.get(SYS.hook),
-    fishing: () => systems.get(SYS.fishing),
-    stations: () => systems.get(SYS.stations),
-    interaction: () => systems.get(SYS.interaction),
-    shark: () => systems.get(SYS.shark),
-    time: () => systems.get(SYS.time),
-    islands: () => systems.get(SYS.islands),
-    ocean: () => systems.get(SYS.ocean),
-    weather: () => systems.get(SYS.weather),
-    merchant: () => systems.get(SYS.merchant),
+    player: () => systems.get<PlayerSystem>(SYS.player),
+    inventory: () => systems.get<InventorySystem>(SYS.inventory),
+    debris: () => systems.get<DebrisSystem>(SYS.debris),
+    build: () => systems.get<BuildSystem>(SYS.build),
+    hook: () => systems.get<HookSystem>(SYS.hook),
+    stations: () => systems.get<StationSystem>(SYS.stations),
+    interaction: () => systems.get<InteractionSystem>(SYS.interaction),
+    shark: () => systems.get<SharkSystem>(SYS.shark),
+    time: () => systems.get<TimeSystem>(SYS.time),
+    ocean: () => systems.get<OceanEnvironment>(SYS.ocean),
+    weather: () => systems.get<WeatherSystem>(SYS.weather),
     saveWorld: (notify = false) => {
-      systems.get(SYS.save).save(notify);
+      systems.get<SaveSystem>(SYS.save).save(notify);
     },
     toast: (text, color) => ui.onToast(text, color),
     ui,

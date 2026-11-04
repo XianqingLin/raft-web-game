@@ -1,14 +1,11 @@
 import type { WorldView } from '../worldView';
-import type { WorldDefinition } from '../../data/worldDefinition';
+import type { NewGameDefinition } from '../../data/gameDefinition';
 
 /**
  * TimeSystem —— 昼夜时间系统（拆分自 engine.ts，split step 7）。
  *
  * 职责：拥有并推进 dayTime/dayCount、
  * 格式化时钟并节流推送 UI、夜晚判定、睡觉跳到次日清晨。
- *
- * 消费方：weather/ocean 的 tick 读 dayTime，存档读写走 restore/dayTime，
- * stations 的夜间与睡觉逻辑走 isNight/advanceToMorning。
  */
 
 export interface TimeSystemCallbacks {
@@ -22,14 +19,12 @@ export class TimeSystem implements Tickable {
   private dayDurationSeconds = 360;
   /** 睡觉跳到的时间点（清晨） */
   private morningTime = 0.15;
-  private _dayTime: number;
-  private _dayCount: number;
+  private _dayTime = 0;
+  private _dayCount = 1;
   private callbacks: TimeSystemCallbacks;
   private lastPushedTimeStr = '';
 
-  constructor(start: WorldDefinition['start'], callbacks: TimeSystemCallbacks) {
-    this._dayTime = start.dayTime;
-    this._dayCount = start.dayCount;
+  constructor(callbacks: TimeSystemCallbacks) {
     this.callbacks = callbacks;
   }
 
@@ -75,7 +70,7 @@ export class TimeSystem implements Tickable {
   }
 
   /** 世界重置：回到定义的起始时间 */
-  public resetTo(start: WorldDefinition['start']) {
+  public resetTo(start: NewGameDefinition['start']) {
     this._dayTime = start.dayTime;
     this._dayCount = start.dayCount;
   }
@@ -84,7 +79,7 @@ export class TimeSystem implements Tickable {
 // ==================== Factory（由 Raft 组合根统一接线） ====================
 
 export function createTimeSystem(w: WorldView): TimeSystem {
-  return new TimeSystem(w.definition.start, {
+  return new TimeSystem({
     onTimeChange: (day, timeStr, progress) => w.ui.onTimeChange(day, timeStr, progress),
   });
 }

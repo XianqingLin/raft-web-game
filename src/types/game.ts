@@ -2,11 +2,13 @@
  * 跨切面类型：物品/建筑枚举、UI 回调数据、存档格式、统计数值。
  *
  * 与 src/game/entities/ 的边界：entities/ 放"有世界在场感"的实体纯数据
- * （PlayerState/SharkData/DebrisObject/MerchantEntity，由各管理器系统持有
+ * （PlayerState/SharkData/DebrisObject，由各管理器系统持有
  * 集合）；本文件放它们引用的共享基型与不含实体生命周期的数据
  * （PlacedStructure 因与存档格式 SerializedStructure、UI 弹窗强耦合，
  * 暂留于此，待存档类型独立成模块时再迁）。
  */
+
+import type { SharkData } from '../game/entities/shark';
 
 export type WeatherType = 'CLEAR' | 'LIGHT_FOG' | 'HEAVY_RAIN';
 
@@ -41,7 +43,6 @@ export type ToolId =
   | 'hook'
   | 'hammer'
   | 'spear'
-  | 'fishing_rod'
   | 'metal_spear'
   | 'reinforced_hook';
 
@@ -50,7 +51,6 @@ export type ItemId = ResourceId | ToolId;
 /** 手持工具左键点击时触发的动作种类（具体执行由 Raft 组合根接线到各系统） */
 export type ToolActionKind =
   | 'throw_hook'
-  | 'cast_fishing_rod'
   | 'spear_thrust'
   | 'scoop_saltwater';
 
@@ -170,17 +170,6 @@ export interface CompactorState {
   compactProgress: number;
 }
 
-export interface MerchantItem {
-  id: string;
-  name: string;
-  icon: string;
-  costBlocks: number;
-  description: string;
-  yieldItem: ResourceId | ItemId;
-  yieldCount: number;
-  category: 'blueprints' | 'energy' | 'alloys' | 'survival';
-}
-
 export interface WorldSaveData {
   version: number;
   worldName: string;
@@ -188,6 +177,8 @@ export interface WorldSaveData {
   dayCount: number;
   dayTime: number;
   sharkDefeatedOnce: boolean;
+  /** v2 起保存每条鲨鱼；旧存档缺省时由新游戏定义补建。 */
+  sharks?: SharkData[];
   structures: SerializedStructure[];
   player?: {
     stats: PlayerStats;

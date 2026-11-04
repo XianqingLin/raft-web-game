@@ -7,12 +7,11 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createRaftGame, RaftGame } from './game/raftGame';
 import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, WeatherType } from './types/game';
 import { SharkData } from './game/entities/shark';
-import { HUD } from './components/HUD';
-import { InventoryCraftingModal } from './components/InventoryCraftingModal';
-import { PauseMenu } from './components/PauseMenu';
-import { CompactorModal } from './components/CompactorModal';
-import { MerchantModal } from './components/MerchantModal';
-import { useUiStore } from './state/uiStore';
+import { HUD } from './ui/components/HUD';
+import { InventoryCraftingModal } from './ui/components/InventoryCraftingModal';
+import { PauseMenu } from './ui/components/PauseMenu';
+import { CompactorModal } from './ui/components/CompactorModal';
+import { useUiStore } from './ui/uiStore';
 import { events } from './core/events';
 
 export default function App() {
@@ -71,7 +70,6 @@ export default function App() {
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [activeChest, setActiveChest] = useState<PlacedStructure | null>(null);
   const [isCompactorOpen, setIsCompactorOpen] = useState(false);
-  const [isMerchantOpen, setIsMerchantOpen] = useState(false);
   const [isBuildMode, setIsBuildMode] = useState(false);
   const [isDemolishMode, setIsDemolishMode] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState<BuildingType>('foundation');
@@ -84,7 +82,7 @@ export default function App() {
 
   const [sharkDefeatedOnce, setSharkDefeatedOnce] = useState(false);
 
-  // Toasts 由事件总线 (core/events.ts) 驱动，store 见 state/uiStore.ts
+  // Toasts 由事件总线 (core/events.ts) 驱动，store 见 ui/uiStore.ts
   const toasts = useUiStore((s) => s.toasts);
 
   const toggleInventory = useCallback(() => {
@@ -126,10 +124,6 @@ export default function App() {
       onToggleInventory: () => toggleInventory(),
       onOpenCompactor: () => {
         setIsCompactorOpen(true);
-        document.exitPointerLock?.();
-      },
-      onOpenMerchant: () => {
-        setIsMerchantOpen(true);
         document.exitPointerLock?.();
       },
     });
@@ -178,7 +172,6 @@ export default function App() {
     setIsInventoryOpen(false);
     setActiveChest(null);
     setIsCompactorOpen(false);
-    setIsMerchantOpen(false);
     setActiveChest(null);
     document.body.requestPointerLock?.();
   };
@@ -266,10 +259,6 @@ export default function App() {
           setIsCompactorOpen(true);
           document.exitPointerLock?.();
         }}
-        onOpenMerchant={() => {
-          setIsMerchantOpen(true);
-          document.exitPointerLock?.();
-        }}
       />
 
       {/* Floating Notifications / Toasts */}
@@ -323,25 +312,9 @@ export default function App() {
         }}
       />
 
-      {/* Drifting Survivor Outpost Barter Stall */}
-      <MerchantModal
-        isOpen={isMerchantOpen}
-        onClose={() => {
-          setIsMerchantOpen(false);
-          document.body.requestPointerLock?.();
-        }}
-        salvagedBlockCount={[...hotbar, ...inventory].reduce(
-          (sum, s) => sum + (s.itemId === 'salvaged_scrap_block' ? s.count : 0),
-          0
-        )}
-        onBuyItem={(item) => {
-          return gameRef.current ? gameRef.current.commands.buyMerchantItem(item) : false;
-        }}
-      />
-
       {/* Pause & Start Splash Screen */}
       <PauseMenu
-        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest && !isCompactorOpen && !isMerchantOpen}
+        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest && !isCompactorOpen}
         onResume={requestLock}
         onRespawn={handleRespawn}
         onSaveWorld={handleSaveWorld}

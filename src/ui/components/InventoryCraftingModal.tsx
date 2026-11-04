@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { InventorySlot, HotbarSlot, PlacedStructure, ResourceId, ItemId } from '../types/game';
-import { ITEM_DEFINITIONS } from '../data/items';
-import { CRAFTING_RECIPES } from '../data/recipes';
+import { InventorySlot, HotbarSlot, PlacedStructure, ResourceId, ItemId } from '../../types/game';
+import { ITEM_DEFINITIONS } from '../../data/items';
+import { CRAFTING_RECIPES } from '../../data/recipes';
 import { X, Wrench, Shield, Home, Coffee, Package, ArrowRightLeft } from 'lucide-react';
-import { soundManager } from '../audio/soundManager';
+import { soundManager } from '../../audio/soundManager';
 
 interface InventoryCraftingModalProps {
   isOpen: boolean;

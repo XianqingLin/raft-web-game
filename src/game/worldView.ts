@@ -1,21 +1,18 @@
 import type * as THREE from 'three';
 import type { GameCallbacks } from './ui';
 import type { GameAction } from './engine/inputMap';
-import type { WorldDefinition } from '../data/worldDefinition';
-import type { OceanEnvironment } from './environment/ocean';
-import type { WeatherSystem } from './environment/weather';
-import type { IslandManager } from './environment/islands';
+import type { RaftGameDefinition } from '../data/gameDefinition';
+import type { OceanEnvironment } from './systems/environment/ocean';
+import type { WeatherSystem } from './systems/environment/weather';
 import type { DebrisSystem } from './systems/debris';
 import type { PlayerSystem } from './systems/player';
 import type { InventorySystem } from './systems/inventory';
 import type { BuildSystem } from './systems/build';
 import type { HookSystem } from './systems/hook';
-import type { FishingSystem } from './systems/fishing';
 import type { StationSystem } from './systems/stations';
 import type { InteractionSystem } from './systems/interact';
 import type { SharkSystem } from './systems/shark';
 import type { TimeSystem } from './systems/time';
-import type { MerchantSystem } from './systems/merchant';
 
 /**
  * WorldView —— 系统工厂拉取依赖的唯一窗口。
@@ -38,8 +35,8 @@ export interface WorldView {
   isActionDown: (action: GameAction) => boolean;
   isPointerLocked: () => boolean;
 
-  // 世界定义（场景内容数据化；时间与实体集合归各自系统所有）
-  definition: WorldDefinition;
+  // 游戏定义（启动配置与新游戏初始状态；运行状态归各系统所有）
+  definition: RaftGameDefinition;
 
   // 系统（惰性：按 createSystems 的工厂调用顺序由先到后可用）
   player: () => PlayerSystem;
@@ -47,15 +44,12 @@ export interface WorldView {
   debris: () => DebrisSystem;
   build: () => BuildSystem;
   hook: () => HookSystem;
-  fishing: () => FishingSystem;
   stations: () => StationSystem;
   interaction: () => InteractionSystem;
   shark: () => SharkSystem;
   time: () => TimeSystem;
-  islands: () => IslandManager;
   ocean: () => OceanEnvironment;
   weather: () => WeatherSystem;
-  merchant: () => MerchantSystem;
 
   // 世界级服务
   /** 存档（BuildSystem 放置后自动存档、SharkSystem 击杀后存档走这里） */

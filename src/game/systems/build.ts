@@ -56,12 +56,10 @@ export interface BuildSystemContext {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   /** 只读使用：幽灵网格落位意图判定需要玩家位置/视线高度 */
-  player: { pos: THREE.Vector3 };
+  player: () => { pos: THREE.Vector3 };
   inventory: InventorySystem;
   /** 放置/拆除成功后触发自动存档（engine.saveWorld(false)） */
   onSave: () => void;
-  /** 岛屿地形高度（脚下高度判定用） */
-  getIslandHeight: (x: number, z: number) => number;
 }
 
 import { Tickable } from '../lifecycle';
@@ -536,7 +534,7 @@ export class BuildSystem implements Tickable {
     const hitPt = new THREE.Vector3();
     const hit = this.raycaster.ray.intersectPlane(buildPlane, hitPt);
 
-    if (hit && hitPt.distanceTo(this.ctx.player.pos) < 14) {
+    if (hit && hitPt.distanceTo(this.ctx.player().pos) < 14) {
       const gx = Math.round(hitPt.x / BLOCK_SIZE);
       const gz = Math.round(hitPt.z / BLOCK_SIZE);
       const def = BUILDING_DEFINITIONS[this.selectedBuildingType];
@@ -561,7 +559,7 @@ export class BuildSystem implements Tickable {
         // Wooden Planks: acts as BOTH Upper Deck and Lower Deck!
         // If player is on upper deck or aiming upward / on top of beams/walls:
         const isUpperDeckIntent =
-          this.ctx.player.pos.y > 2.0 ||
+          this.ctx.player().pos.y > 2.0 ||
           (hasFoundationHere && !hasFloorHere && (this.ctx.camera.rotation.x > -0.25 || this.isSupportedForUpperDeck(gx, gz, 2)));
 
         if (isUpperDeckIntent) {
@@ -680,7 +678,7 @@ export class BuildSystem implements Tickable {
             }
           }
 
-          const targetY = hasFloorHere && this.ctx.player.pos.y > 2.0 ? BLOCK_HEIGHT / 2 + WALL_HEIGHT : BLOCK_HEIGHT / 2;
+          const targetY = hasFloorHere && this.ctx.player().pos.y > 2.0 ? BLOCK_HEIGHT / 2 + WALL_HEIGHT : BLOCK_HEIGHT / 2;
           const edgeKey = `${this.selectedBuildingType}_${edgeX.toFixed(1)}_${targetY.toFixed(1)}_${edgeZ.toFixed(1)}`;
           const alreadyPlaced = this.structures.has(edgeKey);
 
@@ -723,7 +721,7 @@ export class BuildSystem implements Tickable {
 
         if (canPlace && !alreadyHasThis) {
           const targetY =
-            hasFloorHere && this.ctx.player.pos.y > 2.0 && this.selectedBuildingType !== 'pillar'
+            hasFloorHere && this.ctx.player().pos.y > 2.0 && this.selectedBuildingType !== 'pillar'
               ? BLOCK_HEIGHT / 2 + WALL_HEIGHT
               : BLOCK_HEIGHT / 2;
 
@@ -951,12 +949,6 @@ export class BuildSystem implements Tickable {
       }
     }
 
-    // 4. Check Explorable Island Terrain
-    const islandH = this.ctx.getIslandHeight(px, pz);
-    if (islandH > 0.05) {
-      supportY = Math.max(supportY, islandH);
-    }
-
     if (supportY !== -Infinity) {
       return supportY + 1.7;
     }
@@ -1030,9 +1022,8 @@ export function createBuildSystem(w: WorldView): BuildSystem {
   return new BuildSystem({
     scene: w.scene,
     camera: w.camera,
-    player: w.player().localPlayer,
+    player: () => w.player().localPlayer,
     inventory: w.inventory(),
     onSave: () => w.saveWorld(),
-    getIslandHeight: (x, z) => w.islands().getHeightAt(x, z),
   });
 }

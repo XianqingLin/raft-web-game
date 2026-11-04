@@ -2,19 +2,19 @@ import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { PlacedStructure, ItemId } from '../../types/game';
 import { SharkData } from '../entities/shark';
-import { SharkSpawnDef } from '../../data/worldDefinition';
+import { SharkSpawnDef } from '../../data/gameDefinition';
 import { soundManager } from '../../audio/soundManager';
 import { BLOCK_SIZE } from '../visuals/shared';
 import { createSharkMesh, applySharkSkin, createSharkMeatMesh } from '../visuals/shark';
 import { PlayerState } from '../entities/player';
-import { OCEAN_DRIFT_BASE } from '../environment/ocean';
+import { OCEAN_DRIFT_BASE } from './environment/ocean';
 
 /**
  * Shark AI & Combat System (Bruce the Great White).
  * Extracted from engine.ts — owns shark state machine, mesh animation,
  * spear combat and the floating Prime Shark Meat drops.
  *
- * 实体：SharkData（纯数据，entities/shark.ts）。基数由 WorldDefinition.sharks
+ * 实体：SharkData（纯数据，entities/shark.ts）。基数由 RaftGameDefinition.newGame.sharks
  * 决定；本系统持有"实体数据 + 网格绑定"的实例集合，行为以单个实体为参数
  * （tickShark / spearThrust 逐实体判定）。sharkDefeatedOnce 是世界级进度
  * 标记（皮肤与剧情分支），不属于任何单条鲨鱼。
@@ -30,7 +30,7 @@ type PlayerStatsLike = PlayerState['stats'];
 export interface SharkContext {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  player: PlayerState;
+  player: () => PlayerState;
   structures: Map<string, PlacedStructure>;
   raftGroup: THREE.Group;
   callbacks: SharkCallbacks;
@@ -57,14 +57,13 @@ export class SharkSystem implements Tickable {
   private nextMeatId = 1;
   private uiPushTimer: number = 0;
 
-  /** 已生成的鲨鱼实例（基数由 WorldDefinition.sharks 决定） */
+  /** 已生成的鲨鱼实例（基数由 RaftGameDefinition.newGame.sharks 决定） */
   private instances: SharkInstance[] = [];
 
   // Context mirrors (engine-provided shared state & services)
   private ctx: SharkContext;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
-  private player: PlayerState;
   private structures: Map<string, PlacedStructure>;
   private raftGroup: THREE.Group;
   private callbacks: SharkCallbacks;
@@ -75,7 +74,6 @@ export class SharkSystem implements Tickable {
     this.ctx = ctx;
     this.scene = ctx.scene;
     this.camera = ctx.camera;
-    this.player = ctx.player;
     this.structures = ctx.structures;
     this.raftGroup = ctx.raftGroup;
     this.callbacks = ctx.callbacks;
@@ -83,9 +81,13 @@ export class SharkSystem implements Tickable {
     this.saveWorld = ctx.saveWorld;
   }
 
+  private get player(): PlayerState {
+    return this.ctx.player();
+  }
+
   // ==================== Entity Lifecycle ====================
 
-  /** 生成一条鲨鱼（def 来自 WorldDefinition，缺省值 = 原单例的硬编码参数） */
+  /** 生成一条鲨鱼（def 来自 RaftGameDefinition.newGame，缺省值 = 原单例的硬编码参数） */
   public spawn(def: SharkSpawnDef): SharkData {
     const [x = 20, y = -0.4, z = 0] = def.position ?? [];
     const entity: SharkData = {
@@ -106,6 +108,38 @@ export class SharkSystem implements Tickable {
     this.scene.add(mesh);
     this.instances.push({ entity, mesh });
     return entity;
+  }
+
+  /** 清空动态鲨鱼实体；固定场景内容不受影响。 */
+  public clear(): void {
+    for (const inst of this.instances) this.scene.remove(inst.mesh);
+    this.instances = [];
+  }
+
+  /** SharkData 本身无网格引用，复制嵌套位置后即可直接持久化。 */
+  public serializeSharks(): SharkData[] {
+    return this.instances.map(({ entity }) => ({
+      ...entity,
+      pos: { ...entity.pos },
+      targetPos: { ...entity.targetPos },
+    }));
+  }
+
+  /** 以存档为权威重建鲨鱼集合，而不是先按默认定义生成再局部覆盖。 */
+  public restoreSharks(sharks: SharkData[]): void {
+    this.clear();
+    for (const saved of sharks) {
+      const entity = this.spawn({
+        position: [saved.pos.x, saved.pos.y, saved.pos.z],
+        angle: saved.angle,
+        circleRadius: saved.circleRadius,
+        speed: saved.speed,
+      });
+      Object.assign(entity, saved, {
+        pos: { ...saved.pos },
+        targetPos: { ...saved.targetPos },
+      });
+    }
   }
 
   // ==================== World Progress Flags ====================
@@ -526,7 +560,7 @@ export function createSharkSystem(w: WorldView): SharkSystem {
   const system = new SharkSystem({
     scene: w.scene,
     camera: w.camera,
-    player: w.player().localPlayer,
+    player: () => w.player().localPlayer,
     structures: w.build().structures,
     raftGroup: w.build().raftGroup,
     callbacks: {
@@ -542,9 +576,5 @@ export function createSharkSystem(w: WorldView): SharkSystem {
     getEffectiveDrift: () => OCEAN_DRIFT_BASE * w.build().driftSpeedMultiplier,
   });
 
-  // 基数归 WorldDefinition：定义里有几条鲨鱼就生成几条
-  for (const def of w.definition.sharks) {
-    system.spawn(def);
-  }
   return system;
 }

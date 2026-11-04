@@ -395,8 +395,3 @@ export function createSharkMeatMesh(): THREE.Group {
 
   return group;
 }
-
-/**
- * 10. DRIFTING MERCHANT OUTPOST RAFT
- * Reinforced trade barge with survivor NPC, canopy stall, barter crates & lanterns
- */

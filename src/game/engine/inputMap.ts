@@ -19,7 +19,6 @@ export type GameAction =
   | 'moveLeft'
   | 'moveRight'
   | 'jump'
-  | 'interact'
   | 'toggleInventory'
   | 'toggleBuild'
   | 'rotatePiece'
@@ -31,7 +30,6 @@ export const KEY_BINDINGS: Record<GameAction, string[]> = {
   moveLeft: ['KeyA', 'ArrowLeft'],
   moveRight: ['KeyD', 'ArrowRight'],
   jump: ['Space'],
-  interact: ['KeyE'],
   toggleInventory: ['KeyI', 'Tab'],
   toggleBuild: ['KeyB'],
   rotatePiece: ['KeyR'],

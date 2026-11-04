@@ -2,7 +2,7 @@
  * 手持工具网格（visual 层）：钩爪、鱼叉与 FPS 视角工具模型。
  */
 import * as THREE from 'three';
-import { woodPlankMaterial, darkWoodMaterial, ironMaterial } from './shared';
+import { darkWoodMaterial, ironMaterial } from './shared';
 
 export function createGrapplingHookMesh(isFPSTool: boolean = false): THREE.Group {
   const group = new THREE.Group();
@@ -296,37 +296,6 @@ export function createFPSTool(tool: string): THREE.Group {
     toolGroup.add(handle, head);
     toolGroup.position.set(0.35, -0.22, -0.5);
     toolGroup.rotation.set(0.2, 0, -0.2);
-  } else if (tool === 'fishing_rod') {
-    // Bamboo/hardwood fishing rod with brass reel and guide eyelets
-    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.042, 0.45, 8), darkWoodMaterial);
-    grip.position.set(0, -0.6, 0);
-
-    const blank = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.034, 1.9, 8), woodPlankMaterial);
-    blank.position.set(0, 0.5, -0.2);
-    blank.rotation.x = -0.2;
-
-    const reelBase = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 0.08), ironMaterial);
-    reelBase.position.set(0, -0.35, 0.06);
-
-    const spool = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.1, 12), ironMaterial);
-    spool.rotation.z = Math.PI / 2;
-    spool.position.set(0.04, -0.35, 0.08);
-
-    const reelHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.09, 6), darkWoodMaterial);
-    reelHandle.position.set(0.1, -0.35, 0.14);
-
-    // Guide Eyelet rings along rod
-    const guideGeo = new THREE.TorusGeometry(0.02, 0.005, 4, 8);
-    const g1 = new THREE.Mesh(guideGeo, ironMaterial);
-    g1.position.set(0, 0.2, -0.14);
-    const g2 = new THREE.Mesh(guideGeo, ironMaterial);
-    g2.position.set(0, 0.8, -0.28);
-    const g3 = new THREE.Mesh(guideGeo, ironMaterial);
-    g3.position.set(0, 1.4, -0.42);
-
-    toolGroup.add(grip, blank, reelBase, spool, reelHandle, g1, g2, g3);
-    toolGroup.position.set(0.38, -0.26, -0.62);
-    toolGroup.rotation.set(0.45, -0.1, -0.15);
   }
 
   return toolGroup;

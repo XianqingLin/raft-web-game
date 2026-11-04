@@ -65,7 +65,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     category: 'food',
     color: '#84cc16',
     icon: '🥥',
-    description: 'Juicy tropical coconut harvested from island palm trees! Restores +25 Thirst and +20 Hunger.',
+    description: 'Juicy tropical coconut. Restores +25 Thirst and +20 Hunger.',
     stackSize: 10,
   },
   raw_fish: {
@@ -163,17 +163,6 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     stackSize: 1,
     durabilityMax: 40,
     primaryAction: 'spear_thrust',
-  },
-  fishing_rod: {
-    id: 'fishing_rod',
-    name: 'Fishing Rod',
-    category: 'tools',
-    color: '#059669',
-    icon: '🎣',
-    description: 'Cast into open sea to catch mackerel and tilapia.',
-    stackSize: 1,
-    durabilityMax: 30,
-    primaryAction: 'cast_fishing_rod',
   },
   metal_spear: {
     id: 'metal_spear',
@@ -275,7 +264,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     category: 'food',
     color: '#f43f5e',
     icon: '🫐',
-    description: 'Juicy tropical berries picked from island shrubs. Restores +15 Thirst and +12 Hunger.',
+    description: 'Juicy tropical berries. Restores +15 Thirst and +12 Hunger.',
     stackSize: 20,
   },
   feather: {
@@ -293,7 +282,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     category: 'food',
     color: '#fef08a',
     icon: '🥚',
-    description: 'Fresh wild egg found in island nests. Restores +20 Hunger.',
+    description: 'Fresh wild egg. Restores +20 Hunger.',
     stackSize: 10,
   },
 };

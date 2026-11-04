@@ -1,10 +1,10 @@
 import React from 'react';
-import { PlayerStats, HotbarSlot, BuildingType, WeatherType } from '../types/game';
-import { SharkData } from '../game/entities/shark';
-import { ITEM_DEFINITIONS } from '../data/items';
-import { BUILDING_DEFINITIONS } from '../data/buildings';
-import { Heart, Utensils, Droplets, Sun, Moon, AlertTriangle, Hammer, Backpack, Volume2, VolumeX, ShieldAlert, CloudRain, CloudFog, Save, Store, SlidersHorizontal } from 'lucide-react';
-import { soundManager } from '../audio/soundManager';
+import { PlayerStats, HotbarSlot, BuildingType, WeatherType } from '../../types/game';
+import { SharkData } from '../../game/entities/shark';
+import { ITEM_DEFINITIONS } from '../../data/items';
+import { BUILDING_DEFINITIONS } from '../../data/buildings';
+import { Heart, Utensils, Droplets, Sun, Moon, AlertTriangle, Hammer, Backpack, Volume2, VolumeX, ShieldAlert, CloudRain, CloudFog, Save, SlidersHorizontal } from 'lucide-react';
+import { soundManager } from '../../audio/soundManager';
 
 interface HUDProps {
   stats: PlayerStats;
@@ -30,7 +30,6 @@ interface HUDProps {
   weather: WeatherType;
   sharkDefeatedOnce?: boolean;
   onOpenCompactor?: () => void;
-  onOpenMerchant?: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -57,7 +56,6 @@ export const HUD: React.FC<HUDProps> = ({
   weather,
   sharkDefeatedOnce = false,
   onOpenCompactor,
-  onOpenMerchant,
 }) => {
   const isNight = dayProgress > 0.55 || dayProgress < 0.05;
 
@@ -180,18 +178,6 @@ export const HUD: React.FC<HUDProps> = ({
           >
             {soundManager.getIsMuted() ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-sky-400" />}
           </button>
-
-          {onOpenMerchant && (
-            <button
-              onClick={onOpenMerchant}
-              className="flex items-center gap-1.5 px-3 py-2 bg-amber-800 hover:bg-amber-700 text-amber-100 font-medium text-xs rounded-xl shadow-lg border border-amber-400/30 transition-all cursor-pointer"
-              title="Trade with Drifting Scavenger Merchant"
-            >
-              <Store className="w-3.5 h-3.5 text-amber-300" />
-              <span className="hidden sm:inline">Merchant</span>
-            </button>
-          )}
-
 
           {onSaveWorld && (
             <button

@@ -4,7 +4,7 @@ import type { PlayerStats } from '../../types/game';
 /**
  * 玩家实体（entity-manager 模式中的 Entity）——纯数据，无行为。
  *
- * 由 PlayerSystem 持有集合（WorldDefinition.players 决定基数），
+ * 由 PlayerSystem 持有集合（新游戏由定义创建，读档由存档恢复），
  * 各子系统依赖本接口而非 PlayerSystem 类，保持依赖图无环。
  * 约定：entities/ 目录只放实体纯数据，不放行为、不放系统引用。
  */

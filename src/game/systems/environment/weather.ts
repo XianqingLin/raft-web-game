@@ -1,8 +1,8 @@
-import type { WorldView } from '../worldView';
+import type { WorldView } from '../../worldView';
 import type { OceanEnvironment } from './ocean';
 import * as THREE from 'three';
-import { WeatherType } from '../../types/game';
-import { soundManager } from '../../audio/soundManager';
+import { WeatherType } from '../../../types/game';
+import { soundManager } from '../../../audio/soundManager';
 
 export interface WeatherSystem {
   currentWeather: WeatherType;

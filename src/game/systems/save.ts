@@ -67,12 +67,13 @@ export class SaveSystem {
     const { time, build, inventory, player, shark, definition } = this.ctx;
 
     const save: WorldSaveData = {
-      version: 1,
+      version: 2,
       worldName: definition.worldName,
       timestamp: Date.now(),
       dayCount: time.dayCount,
       dayTime: time.dayTime,
       sharkDefeatedOnce: shark.sharkDefeatedOnce,
+      sharks: shark.serializeSharks(),
       structures: build.serializeStructures(),
       player: {
         stats: { ...player.localPlayer.stats },
@@ -105,8 +106,17 @@ export class SaveSystem {
     if (save.sharkDefeatedOnce !== undefined) {
       shark.setDefeated(save.sharkDefeatedOnce);
     }
+    if (Array.isArray(save.sharks)) {
+      shark.restoreSharks(save.sharks);
+    }
 
     if (save.player) {
+      player.clear();
+      player.spawn({
+        position: save.player.pos
+          ? [save.player.pos.x, save.player.pos.y, save.player.pos.z]
+          : undefined,
+      });
       if (save.player.hotbar && Array.isArray(save.player.hotbar)) inventory.hotbar = save.player.hotbar;
       if (save.player.inventory && Array.isArray(save.player.inventory)) inventory.inventory = save.player.inventory;
       if (save.player.stats) player.localPlayer.stats = { ...player.localPlayer.stats, ...save.player.stats };

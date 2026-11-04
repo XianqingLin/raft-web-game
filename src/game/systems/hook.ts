@@ -16,7 +16,7 @@ import { ITEM_DEFINITIONS } from '../../data/items';
 import { soundManager } from '../../audio/soundManager';
 import { createGrapplingHookMesh, createFPSTool } from '../visuals/tools';
 import { events } from '../../core/events';
-import { OCEAN_DRIFT_BASE } from '../environment/ocean';
+import { OCEAN_DRIFT_BASE } from './environment/ocean';
 import { Tickable } from '../lifecycle';
 
 export type HookState = 'IDLE' | 'CHARGING' | 'THROWN' | 'FLOATING' | 'RETRACTING';

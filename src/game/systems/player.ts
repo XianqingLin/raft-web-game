@@ -1,7 +1,7 @@
 /**
  * PlayerSystem —— 玩家系统（拆分自 engine.ts，split step 4）。
  *
- * 职责：player 状态对象的所有权、移动物理（行走/跳跃/游泳/爬上岸/重力/浮力）、
+ * 职责：player 状态对象的所有权、移动物理（行走/跳跃/游泳/攀上木筏/重力/浮力）、
  * 二层天花板碰撞、生存数值衰减（口渴/饥饿/回血/死亡）、重生。
  *
  * 通信约定：死亡/重生提示走事件总线 core/events.ts；UI 数值刷新通过
@@ -11,7 +11,7 @@
 import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { PlayerStats } from '../../types/game';
-import { PlayerSpawnDef } from '../../data/worldDefinition';
+import { PlayerSpawnDef } from '../../data/gameDefinition';
 import type { GameAction } from '../engine/inputMap';
 import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/shared';
 import { soundManager } from '../../audio/soundManager';
@@ -28,8 +28,6 @@ const MAX_PITCH = Math.PI / 2 - 0.05;
 export interface PlayerSystemContext {
   camera: THREE.PerspectiveCamera;
   build: () => BuildSystem;
-  /** 岛屿地形高度（脚下高度判定用） */
-  getIslandHeight: (x: number, z: number) => number;
   /** 动作级按键轮询（键位定义在 engine/inputMap.ts） */
   isActionDown: (action: GameAction) => boolean;
   getPointerLocked: () => boolean;
@@ -39,7 +37,7 @@ export interface PlayerSystemContext {
 /**
  * PlayerSystem —— 玩家实体管理器（entity-manager 模式）。
  *
- * 实体：PlayerState（context.ts，纯数据）。基数由 WorldDefinition.players
+ * 实体：PlayerState（context.ts，纯数据）。基数由 RaftGameDefinition.newGame.players
  * 决定（单人模式即长度 1 的数组）；本地玩家（localPlayer）是本客户端输入
  * 与相机的宿主——这是多人化的接缝：输入/相机永远只路由到 localPlayer，
  * 远程玩家未来复用同一集合与 tick，只是不走输入分支。
@@ -58,7 +56,7 @@ export class PlayerSystem implements Tickable {
 
   // ==================== Entity Lifecycle ====================
 
-  /** 生成一个玩家（def 来自 WorldDefinition；缺省出生在初始木筏上方） */
+  /** 生成一个玩家（def 来自 RaftGameDefinition.newGame；缺省出生在初始木筏上方） */
   public spawn(def: PlayerSpawnDef): PlayerState {
     const [x = 0, y = BLOCK_HEIGHT / 2 + 1.7, z = 0] = def.position ?? [];
     const player: PlayerState = {
@@ -85,10 +83,15 @@ export class PlayerSystem implements Tickable {
     return player;
   }
 
+  /** 清空玩家集合；新游戏初始化与读档恢复前调用。 */
+  public clear(): void {
+    this.players = [];
+  }
+
   /** 本地玩家：输入与相机的宿主（输入路由、存档、Respawn 都走它） */
   public get localPlayer(): PlayerState {
     if (this.players.length === 0) {
-      throw new Error('PlayerSystem: no player spawned — check WorldDefinition.players');
+      throw new Error('PlayerSystem: no player spawned — check RaftGameDefinition.newGame.players');
     }
     return this.players[0];
   }
@@ -106,7 +109,7 @@ export class PlayerSystem implements Tickable {
   }
 
   /**
-   * 单个玩家的 tick：视角同步、WASD 移动与碰撞、跳跃/游泳/爬岸、
+   * 单个玩家的 tick：视角同步、WASD 移动与碰撞、跳跃/游泳/攀上木筏、
    * 重力与浮力、二层天花板碰撞；本地玩家最后把相机对齐到眼睛位置。
    */
   private tickPlayer(player: PlayerState, dt: number, elapsed: number, isLocal: boolean) {
@@ -127,14 +130,12 @@ export class PlayerSystem implements Tickable {
       if (move.lengthSq() > 0) move.normalize();
 
       const standingOnRaft = this.ctx.build().checkOnRaft(player.pos.x, player.pos.z);
-      const islandH = this.ctx.getIslandHeight(player.pos.x, player.pos.z);
-      const onIsland = islandH > 0.15;
       const targetEyeY = this.ctx.build().calculateSurfaceHeight(player.pos.x, player.pos.y, player.pos.z, elapsed);
       const isSolidGround = targetEyeY !== -Infinity;
       const waterSurfaceEyeY = 0.65 + Math.sin(elapsed * 2.5) * 0.08;
 
-      // Physically in water ONLY when not on solid ground/island and near or below water surface
-      player.inWater = !isSolidGround && !onIsland && player.pos.y <= waterSurfaceEyeY + 0.25;
+      // Physically in water ONLY when not on solid ground and near or below water surface
+      player.inWater = !isSolidGround && player.pos.y <= waterSurfaceEyeY + 0.25;
 
       const speed = player.inWater ? player.speed * 0.42 : player.speed;
       const nextX = player.pos.x + move.x * speed * dt;
@@ -167,8 +168,8 @@ export class PlayerSystem implements Tickable {
             player.vel.y = Math.min(0.4, player.vel.y);
           }
         }
-        // Climb smoothly out of water onto raft or island (ONLY allowed when player is at the waterline near the edge)
-        const canClimb = (standingOnRaft || onIsland) && player.pos.y >= 0.15 && player.pos.y <= 1.25;
+        // Climb smoothly out of water onto raft (ONLY allowed when player is at the waterline near the edge)
+        const canClimb = standingOnRaft && player.pos.y >= 0.15 && player.pos.y <= 1.25;
         if (canClimb && (jumpHeld || move.lengthSq() > 0)) {
           player.vel.y = 4.8;
           player.inWater = false;
@@ -197,7 +198,7 @@ export class PlayerSystem implements Tickable {
     }
 
     if (targetFloorY !== -Infinity) {
-      // Solid ground physics (on raft foundation, stairs, upper floor, or island)
+      // Solid ground physics (on raft foundation, stairs, or upper floor)
       player.inWater = false;
       player.vel.y -= 18.0 * dt;
       player.pos.y += player.vel.y * dt;
@@ -329,13 +330,8 @@ export function createPlayerSystem(w: WorldView): PlayerSystem {
     isActionDown: w.isActionDown,
     getPointerLocked: w.isPointerLocked,
     build: () => w.build(),
-    getIslandHeight: (x, z) => w.islands().getHeightAt(x, z),
     onStatsChange: (stats) => w.ui.onStatsChange(stats),
   });
 
-  // 基数归 WorldDefinition：单人模式即 players 数组长度 1
-  for (const def of w.definition.players) {
-    system.spawn(def);
-  }
   return system;
 }

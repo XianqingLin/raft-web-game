@@ -119,15 +119,6 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     requiresWorkbench: true,
   },
   {
-    id: 'craft_fishing_rod',
-    targetItem: 'fishing_rod',
-    name: 'Fishing Rod',
-    category: 'tools',
-    cost: { wood: 4, rope: 2 },
-    description: 'Catch fish swimming in the deep ocean.',
-    unlockedByDefault: true,
-  },
-  {
     id: 'craft_cup',
     targetItem: 'cup_empty',
     name: 'Wooden Cup',

@@ -1,15 +1,12 @@
 import type { WorldView } from '../worldView';
 import type { GameCallbacks } from '../ui';
-import type { WorldDefinition } from '../../data/worldDefinition';
-import { SystemRegistry, systemKey } from '../lifecycle';
-import { OceanEnvironment, createOceanEnvironment } from '../environment/ocean';
-import { WeatherSystem, createWeather } from '../environment/weather';
-import { IslandManager, createIslandManager } from '../environment/islands';
+import type { RaftGameDefinition } from '../../data/gameDefinition';
+import { SystemRegistry } from '../lifecycle';
+import { createOceanEnvironment } from './environment/ocean';
+import { createWeather } from './environment/weather';
 import { TimeSystem, createTimeSystem } from './time';
 import { PlayerSystem, createPlayerSystem } from './player';
 import { InventorySystem, createInventorySystem } from './inventory';
-import { MerchantSystem, createMerchantSystem } from './merchant';
-import { FishingSystem, createFishingSystem } from './fishing';
 import { HookSystem, createHookSystem } from './hook';
 import { BuildSystem, createBuildSystem } from './build';
 import { DebrisSystem, createDebrisSystem } from './debris';
@@ -18,29 +15,20 @@ import { SharkSystem, createSharkSystem } from './shark';
 import { InteractionSystem, createInteractionSystem } from './interact';
 import { SaveSystem, createSaveSystem } from './save';
 
-/**
- * 系统键 —— 全部系统的类型化查找入口。
- * 消费方：WorldView 的惰性 getter（createRaftGame 接线）与 RaftGame 门面。
- *
- * class 系统直接用类当 key（sys(BuildSystem)，类既是类型又是令牌）；只有
- * 工厂返回对象字面量的环境三件套没有类，才用 systemKey() 造假名令牌。
- */
+/** 系统名称的集中出处。 */
 export const SYS = {
-  time: TimeSystem,
-  player: PlayerSystem,
-  inventory: InventorySystem,
-  ocean: systemKey<OceanEnvironment>('OceanEnvironment'),
-  weather: systemKey<WeatherSystem>('WeatherSystem'),
-  islands: systemKey<IslandManager>('IslandManager'),
-  merchant: MerchantSystem,
-  fishing: FishingSystem,
-  hook: HookSystem,
-  build: BuildSystem,
-  debris: DebrisSystem,
-  stations: StationSystem,
-  shark: SharkSystem,
-  interaction: InteractionSystem,
-  save: SaveSystem,
+  time: 'time',
+  player: 'player',
+  inventory: 'inventory',
+  ocean: 'ocean',
+  weather: 'weather',
+  hook: 'hook',
+  build: 'build',
+  debris: 'debris',
+  stations: 'stations',
+  shark: 'shark',
+  interaction: 'interaction',
+  save: 'save',
 } as const;
 
 /**
@@ -64,13 +52,6 @@ export function createSystems(w: WorldView, r: SystemRegistry): SystemRegistry {
   const ocean = r.add(SYS.ocean, createOceanEnvironment(w));
   r.add(SYS.weather, createWeather(w, ocean));
 
-  r.add(SYS.islands, createIslandManager(w.scene));
-
-  // Drifting Merchant Outpost Barge (Scavenger Economy) — count/position from definition。
-  // 静态场景实体，无每帧行为，仅注册供查找。
-  r.add(SYS.merchant, createMerchantSystem(w));
-
-  r.add(SYS.fishing, createFishingSystem(w));
   r.add(SYS.hook, createHookSystem(w));
   r.add(SYS.build, createBuildSystem(w));
   r.add(SYS.debris, createDebrisSystem(w));
@@ -82,61 +63,82 @@ export function createSystems(w: WorldView, r: SystemRegistry): SystemRegistry {
   return r;
 }
 
+/** 只在新游戏或世界重置时创建默认动态实体与初始内容。 */
+function initializeNewGame(systems: SystemRegistry, definition: RaftGameDefinition): void {
+  const { newGame } = definition;
+  systems.get<TimeSystem>(SYS.time).resetTo(newGame.start);
+
+  const player = systems.get<PlayerSystem>(SYS.player);
+  player.clear();
+  for (const def of newGame.players) player.spawn(def);
+
+  const shark = systems.get<SharkSystem>(SYS.shark);
+  shark.clear();
+  shark.setDefeated(false);
+  for (const def of newGame.sharks) shark.spawn(def);
+
+  systems.get<BuildSystem>(SYS.build).createInitialRaft();
+
+  const [debrisMinX, debrisMaxX] = newGame.initialDebris.xRange;
+  for (let i = 0; i < newGame.initialDebris.count; i++) {
+    systems.get<DebrisSystem>(SYS.debris).spawn(debrisMinX + Math.random() * (debrisMaxX - debrisMinX));
+  }
+}
+
 /**
- * 世界引导 —— 实体编排：决定世界初始有哪些实体（读档恢复，或初始木筏 +
- * 开局漂浮物），并把初始状态推给 UI。与 createSystems 同文件：二者都是
- * 组合知识，GameEngine 不该认识任何具体系统。
+ * 世界引导：固定场景已由系统工厂构建；这里只选择动态状态的来源。
+ * 新游戏读取 newGame，读档则以存档为权威重建动态实体，不再先创建默认世界。
  */
 export function bootstrapWorld(
   w: WorldView,
   systems: SystemRegistry,
-  definition: WorldDefinition,
+  definition: RaftGameDefinition,
   ui: Pick<
     GameCallbacks,
     'onToast' | 'onStatsChange' | 'onHotbarChange' | 'onInventoryChange'
   >,
 ): void {
-  const save = systems.get(SYS.save);
-  const build = systems.get(SYS.build);
-  const inventory = systems.get(SYS.inventory);
-
-  // Load Saved World or Create Starter Raft
+  const save = systems.get<SaveSystem>(SYS.save);
+  const inventory = systems.get<InventorySystem>(SYS.inventory);
   const savedWorld = save.loadLatest();
+
   if (savedWorld) {
+    // v1 存档没有逐鲨鱼数据，且 player 曾可选；仅为这些旧档回退到初始定义。
+    if (!savedWorld.player) {
+      for (const def of definition.newGame.players) {
+        systems.get<PlayerSystem>(SYS.player).spawn(def);
+      }
+    }
+    if (!Array.isArray(savedWorld.sharks)) {
+      for (const def of definition.newGame.sharks) {
+        systems.get<SharkSystem>(SYS.shark).spawn(def);
+      }
+    }
     save.load(savedWorld);
     ui.onToast?.(`📂 World restored from previous save! (Day ${savedWorld.dayCount || 1})`, '#38bdf8');
   } else {
-    build.createInitialRaft();
+    initializeNewGame(systems, definition);
   }
 
-  // Populate Initial Floating Debris
-  const [debrisMinX, debrisMaxX] = definition.initialDebris.xRange;
-  for (let i = 0; i < definition.initialDebris.count; i++) {
-    systems.get(SYS.debris).spawn(debrisMinX + Math.random() * (debrisMaxX - debrisMinX));
-  }
-
-  // Update active equipped tool
-  systems.get(SYS.hook).updateEquippedTool(
+  systems.get<HookSystem>(SYS.hook).updateEquippedTool(
     inventory.hotbar[inventory.activeHotbarIdx]?.itemId ?? null
   );
 
-  // Notify initial state to React
-  ui.onStatsChange({ ...systems.get(SYS.player).localPlayer.stats });
+  ui.onStatsChange({ ...systems.get<PlayerSystem>(SYS.player).localPlayer.stats });
   ui.onHotbarChange([...inventory.hotbar], inventory.activeHotbarIdx);
   ui.onInventoryChange([...inventory.inventory]);
 }
 
-/** Raft 专用重置编排；通用 GameEngine 不认识这些系统或世界定义。 */
+/** Raft 专用重置编排；通用 GameEngine 不认识这些系统或游戏定义。 */
 export function resetRaftWorld(
   systems: SystemRegistry,
-  definition: WorldDefinition,
-  ui: Pick<GameCallbacks, 'onToast'>,
+  definition: RaftGameDefinition,
+  ui: Pick<GameCallbacks, 'onToast' | 'onStatsChange'>,
 ): void {
-  systems.get(SYS.save).clear();
-  systems.get(SYS.build).clearAll();
-  systems.get(SYS.shark).reset();
-  systems.get(SYS.time).resetTo(definition.start);
-  systems.get(SYS.build).createInitialRaft();
-  systems.get(SYS.player).respawnPlayer();
+  systems.get<SaveSystem>(SYS.save).clear();
+  systems.get<BuildSystem>(SYS.build).clearAll();
+  systems.get<DebrisSystem>(SYS.debris).dispose();
+  initializeNewGame(systems, definition);
+  ui.onStatsChange({ ...systems.get<PlayerSystem>(SYS.player).localPlayer.stats });
   ui.onToast?.('🔄 World reset to initial 2x2 starter raft!', '#38bdf8');
 }

@@ -2,7 +2,7 @@
  * StationSystem —— 站点交互系统（拆分自 engine.ts，split step 6）。
  *
  * 职责：木筏功能性站点的交互逻辑（烤架/净水器/作物/收集网/箱子/床/压缩机）、
- * 站点每帧运转（煮沸/烤制/生长/捕网）、压缩机投料与锻造、商人交易。
+ * 站点每帧运转（煮沸/烤制/生长/捕网）、压缩机投料与锻造。
  *
  * 通信约定：提示走事件总线 core/events.ts；UI 数值刷新通过 ctx 回调
  * onHotbarChange/onInventoryChange/onStatsChange（后续迁事件总线时移除）。
@@ -14,7 +14,6 @@ import {
   HotbarSlot,
   InventorySlot,
   ItemId,
-  MerchantItem,
   PlacedStructure,
   ResourceId,
 } from '../../types/game';
@@ -354,7 +353,7 @@ export class StationSystem implements Tickable {
     return false;
   }
 
-  // ==================== Debris Compactor & Merchant ====================
+  // ==================== Debris Compactor ====================
 
   // Debris Compactor: Feed junk materials (wood, plastic, thatch/leaf, scrap) into hopper
   public feedCompactorJunk(junkItemId: ItemId, count: number = 1): boolean {
@@ -425,29 +424,6 @@ export class StationSystem implements Tickable {
     this.ctx.inventory.addItemToInventory('salvaged_scrap_block', 1);
     soundManager.playCraft();
     events.emit('toast', { text: '⚙️ Hydraulic Compactor forged 1 Salvaged Scrap Block!', color: '#22c55e' });
-    return true;
-  }
-
-  // Scavenger Merchant: Trade Salvaged Scrap Blocks for rare gear and blueprints
-  public buyMerchantItem(item: MerchantItem): boolean {
-    let blockCount = 0;
-    for (const s of [...this.ctx.inventory.hotbar, ...this.ctx.inventory.inventory]) {
-      if (s.itemId === 'salvaged_scrap_block') blockCount += s.count;
-    }
-
-    if (blockCount < item.costBlocks) {
-      events.emit('toast', {
-        text: `Need ${item.costBlocks} Salvaged Scrap Blocks! (You have ${blockCount})`,
-        color: '#ef4444',
-      });
-      return false;
-    }
-
-    this.ctx.inventory.deductCost({ salvaged_scrap_block: item.costBlocks });
-    this.ctx.inventory.addItemToInventory(item.yieldItem, item.yieldCount);
-    soundManager.playCraft();
-    events.emit('toast', { text: `Purchased ${item.yieldCount}x ${item.name}!`, color: '#22c55e' });
-
     return true;
   }
 
