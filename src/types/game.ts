@@ -32,7 +32,6 @@ export type ResourceId =
   | 'shark_bait'
   | 'shark_meat'
   | 'cooked_shark_meat'
-  | 'salvaged_scrap_block'
   | 'ironwood'
   | 'titanium_ingot'
   | 'berry'
@@ -70,8 +69,7 @@ export type BuildingType =
   | 'chest'
   | 'sail'
   | 'bed'
-  | 'crafting_table'
-  | 'debris_compactor';
+  | 'crafting_table';
 
 export interface ItemDef {
   id: ItemId;
@@ -162,13 +160,6 @@ export interface SerializedStructure {
 
 // NOTE: Story/landmark types (StoryLocationId, StoryLocation, LoreLog,
 // SignalArrayState) were removed 2026-11-03 — see docs/FEATURES_OFF.md.
-
-export interface CompactorState {
-  loadedJunk: number; // Max 10 junk to compact 1 block
-  maxJunk: number;
-  isCompacting: boolean;
-  compactProgress: number;
-}
 
 export interface WorldSaveData {
   version: number;

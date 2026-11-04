@@ -1,8 +1,8 @@
 /**
  * StationSystem —— 站点交互系统（拆分自 engine.ts，split step 6）。
  *
- * 职责：木筏功能性站点的交互逻辑（烤架/净水器/作物/收集网/箱子/床/压缩机）、
- * 站点每帧运转（煮沸/烤制/生长/捕网）、压缩机投料与锻造。
+ * 职责：木筏功能性站点的交互逻辑（烤架/净水器/作物/收集网/箱子/床）、
+ * 站点每帧运转（煮沸/烤制/生长/捕网）。
  *
  * 通信约定：提示走事件总线 core/events.ts；UI 数值刷新通过 ctx 回调
  * onHotbarChange/onInventoryChange/onStatsChange（后续迁事件总线时移除）。
@@ -18,7 +18,6 @@ import {
   ResourceId,
 } from '../../types/game';
 import { DebrisObject } from '../entities/debris';
-import { ITEM_DEFINITIONS } from '../../data/items';
 import { soundManager } from '../../audio/soundManager';
 import { createDebrisMesh } from '../visuals/debris';
 import { InventorySystem } from './inventory';
@@ -36,7 +35,6 @@ export interface StationSystemContext {
   onInventoryChange: () => void;
   onStatsChange: () => void;
   onOpenChest: (chest: PlacedStructure) => void;
-  onOpenCompactor: () => void;
   /** 床睡觉判定（时间策略与数值都在 TimeSystem） */
   getIsNight: () => boolean;
   /** 推进到次日清晨，返回新的天数（用于提示文案） */
@@ -48,16 +46,13 @@ export interface StationSystemContext {
 import { Tickable } from '../lifecycle';
 
 export class StationSystem implements Tickable {
-  /** 压缩机料斗当前装载量（0-10） */
-  public compactorLoadedJunk = 0;
-
   private ctx: StationSystemContext;
 
   constructor(ctx: StationSystemContext) {
     this.ctx = ctx;
   }
 
-  // Unified Smart Structure Interaction (Grill, Purifier, Crop Plot, Collection Net, Chest, Bed, Compactor, Receiver)
+  // Unified Smart Structure Interaction (Grill, Purifier, Crop Plot, Collection Net, Chest, Bed)
   public interactWithStructure(structure: PlacedStructure): boolean {
     // 1. Grill - Automatic Cook & Automatic Consume/Store (supports Fish, Potatoes, and Prime Shark Meat)
     if (structure.type === 'grill') {
@@ -344,87 +339,7 @@ export class StationSystem implements Tickable {
       return true;
     }
 
-    // 7. Debris Compactor (Scavenger Economy Station)
-    if (structure.type === 'debris_compactor') {
-      this.ctx.onOpenCompactor();
-      return true;
-    }
-
     return false;
-  }
-
-  // ==================== Debris Compactor ====================
-
-  // Debris Compactor: Feed junk materials (wood, plastic, thatch/leaf, scrap) into hopper
-  public feedCompactorJunk(junkItemId: ItemId, count: number = 1): boolean {
-    if (this.compactorLoadedJunk >= 10) {
-      events.emit('toast', {
-        text: 'Debris Compactor hopper is full (10/10)! Ready to forge scrap block.',
-        color: '#f59e0b',
-      });
-      return false;
-    }
-
-    const toFeed = Math.min(count, 10 - this.compactorLoadedJunk);
-    let remaining = toFeed;
-
-    for (const s of this.ctx.inventory.hotbar) {
-      if (s.itemId === junkItemId) {
-        const take = Math.min(remaining, s.count);
-        s.count -= take;
-        remaining -= take;
-        if (s.count <= 0) s.itemId = null;
-        if (remaining <= 0) break;
-      }
-    }
-    if (remaining > 0) {
-      for (const s of this.ctx.inventory.inventory) {
-        if (s.itemId === junkItemId) {
-          const take = Math.min(remaining, s.count);
-          s.count -= take;
-          remaining -= take;
-          if (s.count <= 0) s.itemId = null;
-          if (remaining <= 0) break;
-        }
-      }
-    }
-
-    const fed = toFeed - remaining;
-    if (fed <= 0) {
-      events.emit('toast', {
-        text: `No ${ITEM_DEFINITIONS[junkItemId]?.name || junkItemId} found in inventory!`,
-        color: '#ef4444',
-      });
-      return false;
-    }
-
-    this.compactorLoadedJunk += fed;
-    soundManager.playItemCollect();
-    const itemName = ITEM_DEFINITIONS[junkItemId]?.name || junkItemId;
-    events.emit('toast', {
-      text: `Fed ${fed}x ${itemName} into Compactor (${this.compactorLoadedJunk}/10)`,
-      color: '#38bdf8',
-    });
-    this.ctx.onHotbarChange();
-    this.ctx.onInventoryChange();
-    return true;
-  }
-
-  // Debris Compactor: Forge 1 Salvaged Scrap Block from 10 ocean junk
-  public forgeCompactorBlock(): boolean {
-    if (this.compactorLoadedJunk < 10) {
-      events.emit('toast', {
-        text: `Need 10 ocean junk to forge! Loaded: ${this.compactorLoadedJunk}/10`,
-        color: '#ef4444',
-      });
-      return false;
-    }
-
-    this.compactorLoadedJunk = 0;
-    this.ctx.inventory.addItemToInventory('salvaged_scrap_block', 1);
-    soundManager.playCraft();
-    events.emit('toast', { text: '⚙️ Hydraulic Compactor forged 1 Salvaged Scrap Block!', color: '#22c55e' });
-    return true;
   }
 
   // ==================== Per-frame Update ====================
@@ -517,7 +432,6 @@ export function createStationSystem(w: WorldView): StationSystem {
     onInventoryChange: () => w.ui.onInventoryChange([...w.inventory().inventory]),
     onStatsChange: () => w.ui.onStatsChange({ ...w.player().localPlayer.stats }),
     onOpenChest: (chest) => w.ui.onOpenChest(chest),
-    onOpenCompactor: () => w.ui.onOpenCompactor?.(),
     getIsNight: () => w.time().isNight,
     advanceToMorning: () => w.time().advanceToMorning(),
     getDebrisList: () => w.debris().items,

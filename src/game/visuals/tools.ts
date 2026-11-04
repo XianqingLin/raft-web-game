@@ -300,9 +300,3 @@ export function createFPSTool(tool: string): THREE.Group {
 
   return toolGroup;
 }
-
-
-/**
- * 6. DEBRIS COMPACTOR STATION
- * Heavy hydraulic mechanical press for forging Salvaged Scrap Blocks
- */

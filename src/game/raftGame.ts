@@ -1,6 +1,5 @@
 import type {
   BuildingType,
-  ItemId,
   WorldSaveData,
 } from '../types/game';
 import { events } from '../core/events';
@@ -47,8 +46,6 @@ export interface RaftGameCommands {
   selectBuilding(type: BuildingType): void;
   toggleBuildMode(): void;
   respawn(): void;
-  feedCompactorJunk(itemId: ItemId, count: number): boolean;
-  forgeCompactorBlock(): boolean;
   saveWorld(notify?: boolean): WorldSaveData;
   resetWorld(): void;
 }
@@ -81,12 +78,6 @@ export class RaftGame {
       },
       respawn: () => {
         this.systems.get<PlayerSystem>(SYS.player).respawnPlayer();
-      },
-      feedCompactorJunk: (itemId, count) => {
-        return this.systems.get<StationSystem>(SYS.stations).feedCompactorJunk(itemId, count);
-      },
-      forgeCompactorBlock: () => {
-        return this.systems.get<StationSystem>(SYS.stations).forgeCompactorBlock();
       },
       saveWorld: (notify = true) => {
         return this.systems.get<SaveSystem>(SYS.save).save(notify);

@@ -266,16 +266,6 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   },
   // Scavenger & Story Mode Technology
   {
-    id: 'craft_debris_compactor',
-    targetBuilding: 'debris_compactor',
-    name: 'Debris Compactor',
-    category: 'survival',
-    cost: { wood: 6, plastic: 4, scrap: 4, bolt: 2 },
-    description: 'Hydraulic trash compactor. Feed 10 ocean junk pieces to forge a standardized Salvaged Scrap Block for trading!',
-    unlockedByDefault: true,
-    requiresWorkbench: true,
-  },
-  {
     id: 'craft_prime_bait',
     targetItem: 'shark_bait',
     name: 'Prime Shark Meat Bait (x3)',

@@ -29,7 +29,6 @@ interface HUDProps {
   dayProgress: number;
   weather: WeatherType;
   sharkDefeatedOnce?: boolean;
-  onOpenCompactor?: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -55,7 +54,6 @@ export const HUD: React.FC<HUDProps> = ({
   dayProgress,
   weather,
   sharkDefeatedOnce = false,
-  onOpenCompactor,
 }) => {
   const isNight = dayProgress > 0.55 || dayProgress < 0.05;
 
@@ -75,7 +73,6 @@ export const HUD: React.FC<HUDProps> = ({
     'chest',
     'sail',
     'bed',
-    'debris_compactor',
   ];
 
   const selectedBuildingDef = BUILDING_DEFINITIONS[selectedBuilding];

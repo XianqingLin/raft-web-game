@@ -124,10 +124,6 @@ export class InteractionSystem implements Tickable {
             foundInteract = { structure: s, action: 'growing' };
             break;
           }
-        } else if (s.type === 'debris_compactor') {
-          foundInteract = { structure: s, action: 'compactor' };
-          promptText = `[Left-Click] Open Debris Compactor (${stations.compactorLoadedJunk}/10 Junk Loaded)`;
-          break;
         } else if (s.type === 'collection_net' && (s.data?.trappedItems?.length || 0) > 0) {
           foundInteract = { structure: s, action: 'collect_net' };
           promptText = `[Left-Click] Collect ${s.data!.trappedItems!.length} Trapped Item(s)`;
@@ -173,7 +169,7 @@ export class InteractionSystem implements Tickable {
       return;
     }
 
-    // 2. Left click on raft structures (Grill, Purifier, Crop Plot, Collection Net, Chest, Compactor)
+    // 2. Left click on raft structures (Grill, Purifier, Crop Plot, Collection Net, Chest)
     const targetStructure = this.aimedInteractable?.structure || ctx.build.getStructureUnderCrosshair();
     if (targetStructure) {
       const handled = ctx.stations.interactWithStructure(targetStructure);

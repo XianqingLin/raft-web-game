@@ -126,11 +126,4 @@ export const BUILDING_DEFINITIONS: Record<
     description: 'Enables advanced engineering blueprinted tools and metal structures.',
     snappableTo: 'raft',
   },
-  debris_compactor: {
-    name: 'Debris Compactor',
-    cost: { wood: 6, plastic: 4, scrap: 4, bolt: 2 },
-    icon: '🗜️',
-    description: 'Compress 10 ocean junk pieces into Salvaged Scrap Blocks.',
-    snappableTo: 'raft',
-  },
 };

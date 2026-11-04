@@ -21,7 +21,6 @@ export interface GameCallbacks {
   onTimeChange: (day: number, timeStr: string, progress: number) => void;
   onWeatherChange?: (weather: WeatherType) => void;
   onToggleInventory?: () => void;
-  onOpenCompactor?: () => void;
 }
 
 /** 组合根会接入事件总线的 toast，因此玩法层内部可将其视为必选。 */

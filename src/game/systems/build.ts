@@ -35,7 +35,6 @@ import {
   createChestMesh,
   createSailMesh,
   createBedMesh,
-  createDebrisCompactorMesh,
 } from '../visuals/buildings';
 import { events } from '../../core/events';
 import { InventorySystem } from './inventory';
@@ -99,7 +98,6 @@ export class BuildSystem implements Tickable {
     'chest',
     'sail',
     'bed',
-    'debris_compactor',
   ];
 
   constructor(ctx: BuildSystemContext) {
@@ -391,8 +389,6 @@ export class BuildSystem implements Tickable {
         return createSailMesh();
       case 'bed':
         return createBedMesh();
-      case 'debris_compactor':
-        return createDebrisCompactorMesh();
       default:
         return createFoundationMesh();
     }

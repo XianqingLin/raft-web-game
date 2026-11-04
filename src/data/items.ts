@@ -231,15 +231,6 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDef> = {
     description: 'Crispy fire-grilled shark fillet! Restores +65 Hunger and +30 Health.',
     stackSize: 10,
   },
-  salvaged_scrap_block: {
-    id: 'salvaged_scrap_block',
-    name: 'Salvaged Scrap Block',
-    category: 'resources',
-    color: '#64748b',
-    icon: '🧱',
-    description: 'Heavy standardized cube pressed from 10 ocean junk pieces. The currency of the open sea!',
-    stackSize: 30,
-  },
   ironwood: {
     id: 'ironwood',
     name: 'Mutated Ironwood',

@@ -10,7 +10,6 @@ import { SharkData } from './game/entities/shark';
 import { HUD } from './ui/components/HUD';
 import { InventoryCraftingModal } from './ui/components/InventoryCraftingModal';
 import { PauseMenu } from './ui/components/PauseMenu';
-import { CompactorModal } from './ui/components/CompactorModal';
 import { useUiStore } from './ui/uiStore';
 import { events } from './core/events';
 
@@ -69,7 +68,6 @@ export default function App() {
   const [isPointerLocked, setIsPointerLocked] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [activeChest, setActiveChest] = useState<PlacedStructure | null>(null);
-  const [isCompactorOpen, setIsCompactorOpen] = useState(false);
   const [isBuildMode, setIsBuildMode] = useState(false);
   const [isDemolishMode, setIsDemolishMode] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState<BuildingType>('foundation');
@@ -122,10 +120,6 @@ export default function App() {
       },
       onWeatherChange: (newWeather) => setWeather(newWeather),
       onToggleInventory: () => toggleInventory(),
-      onOpenCompactor: () => {
-        setIsCompactorOpen(true);
-        document.exitPointerLock?.();
-      },
     });
 
     gameRef.current = game;
@@ -170,8 +164,6 @@ export default function App() {
 
   const requestLock = () => {
     setIsInventoryOpen(false);
-    setActiveChest(null);
-    setIsCompactorOpen(false);
     setActiveChest(null);
     document.body.requestPointerLock?.();
   };
@@ -255,10 +247,6 @@ export default function App() {
         dayProgress={dayProgress}
         weather={weather}
         sharkDefeatedOnce={sharkDefeatedOnce}
-        onOpenCompactor={() => {
-          setIsCompactorOpen(true);
-          document.exitPointerLock?.();
-        }}
       />
 
       {/* Floating Notifications / Toasts */}
@@ -295,26 +283,9 @@ export default function App() {
         stats={stats}
       />
 
-      {/* Debris Compactor Hydraulic Press Modal */}
-      <CompactorModal
-        isOpen={isCompactorOpen}
-        onClose={() => {
-          setIsCompactorOpen(false);
-          document.body.requestPointerLock?.();
-        }}
-        inventory={inventory}
-        hotbar={hotbar}
-        onFeedJunk={(res, count) => {
-          return gameRef.current ? gameRef.current.commands.feedCompactorJunk(res, count) : false;
-        }}
-        onForgeBlock={() => {
-          return gameRef.current ? gameRef.current.commands.forgeCompactorBlock() : false;
-        }}
-      />
-
       {/* Pause & Start Splash Screen */}
       <PauseMenu
-        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest && !isCompactorOpen}
+        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest}
         onResume={requestLock}
         onRespawn={handleRespawn}
         onSaveWorld={handleSaveWorld}

@@ -11,6 +11,7 @@
 | 程序化岛屿与采集 | 无独立 commit（2026-11-04 工作区删除） | 2026-11-04 | `src/game/systems/environment/islands.ts`，见 §4 |
 | 钓鱼 | 无独立 commit（2026-11-04 工作区删除） | 2026-11-04 | `src/game/systems/fishing.ts`，见 §5 |
 | 漂流商人与交易 | 无独立 commit（2026-11-04 工作区删除） | 2026-11-04 | `src/game/systems/merchant.ts`, `src/data/merchant.ts`, `src/ui/components/MerchantModal.tsx`，见 §6 |
+| 碎片压缩机 | 无独立 commit（2026-11-04 工作区删除） | 2026-11-04 | `src/ui/components/CompactorModal.tsx`，见 §7 |
 
 ---
 
@@ -152,7 +153,26 @@ toast,但没有任何 `achievementManager.track*()` 调用,里程碑永远不会
 - `MerchantModal`、HUD 商人按钮、近距离交易提示和相关 React 状态
 - 仅服务于商人面板的 E 键动作；其他交互提示改为仅显示左键
 
-**保留内容**: 压缩机及其 `salvaged_scrap_block` 产出仍保留，但废料块暂时没有
-交易消费途径。原商品 `titanium_ingot` / `ironwood` 的物品 ID 和定义为兼容旧存档
+**保留内容**: 原商品 `titanium_ingot` / `ironwood` 的物品 ID 和定义为兼容旧存档
 而保留，其商人购买来源已关闭；`metal_ingot` / `shark_bait` 仍有各自配方。
 未来若恢复经济系统，应重新设计获取与消费循环，不默认沿用旧商人目录。
+(注: 当时保留的压缩机与 `salvaged_scrap_block` 已于 2026-11-04 随压缩机功能一并移除，见 §7)
+
+## 7. 碎片压缩机 (Debris Compactor)
+
+**移除日期**: 2026-11-04（本次工作区修改，无独立移除 commit）
+
+**移除理由**: 压缩机是漂流商人交易体系（§6）的唯一上游产出设施，其产物
+`salvaged_scrap_block` 本就"暂时没有交易消费途径"。商人移除后压缩机成为
+无下游消费的孤立玩法，随经济循环一并移除。
+
+**移除范围**:
+- `debris_compactor` 建筑类型、定义、配方与液压机 3D 模型
+- `salvaged_scrap_block` 物品及定义（压缩机是其唯一来源）
+- `StationSystem` 的料斗装载状态（compactorLoadedJunk）、投料与锻造方法
+- `CompactorModal` 弹窗、HUD 建造面板入口与交互提示
+- Raft 门面的 `feedCompactorJunk` / `forgeCompactorBlock` 命令与
+  `onOpenCompactor` 回调、`CompactorState` 类型
+
+**恢复要点**: 压缩机逻辑自包含（数据/系统/表现/四层接线均已清理），恢复时
+按 §6 的新经济设计一并重建获取与消费循环，不单独恢复。
