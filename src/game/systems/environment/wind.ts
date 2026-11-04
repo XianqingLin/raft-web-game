@@ -2,7 +2,9 @@
  * WindSystem —— 风（天气与海流的唯一自主演化源头）。
  *
  * 跑步机模型：木筏永远固定在世界原点，"航行"由本系统给出的滚动量表达：
- *   - getRaftVelocity：木筏航速 = 海流 + 帆推力 + 划桨推力。
+ *   - getRaftVelocity：木筏航速是惯性状态（动量模型）——帆/桨推力与相对
+ *     海流的二次水阻力共同演化，松桨长滑行、顶流净速、满帆极速都由
+ *     推力-阻力平衡 v* = sqrt(推力/阻力系数) 涌现，不逐项硬算相加。
  *     世界（海面波形、漂浮物）绕木筏以它的反向滚动。
  *   - getScrollOffset：累计滚动量（航程），海面 GPU/CPU 波形采样同减此偏移，
  *     波浪才会从木筏底下持续流过。
@@ -94,11 +96,18 @@ const SAIL_COUNT_CAP = 2;
 const MAX_RAFT_SPEED = 7;
 /** 划桨推进目标速度（m/s）：可克服任何海流，介于海流与满帆顺风之间 */
 const PADDLE_THRUST = 2.4;
+/** 二次水阻力系数：平衡航速 v* = sqrt(推力/k)。取 1/PADDLE_THRUST 使单桨
+ *  平衡航速（相对水）恰为 PADDLE_THRUST，与旧模型手感一致；松桨后的滑行、
+ *  顶流划桨的净速、满帆极速全部由此涌现 */
+const WATER_DRAG = 1 / PADDLE_THRUST;
 /** 开帆时划桨的力度折减：桨退居"微调航向"，速度仍由风主导 */
 const PADDLE_TRIM_FACTOR = 0.45;
-/** 起桨/松桨的推力过渡速率（1/s）：松桨后木筏滑行渐停，无急刹 */
+/** 起桨推力过渡速率（1/s）：起桨渐快 */
 const PADDLE_LERP_IN = 3.0;
-const PADDLE_LERP_OUT = 1.2;
+/** 收桨推力归零速率（1/s）：只平滑收桨瞬间，松桨后的滑行由动量+阻力负责 */
+const PADDLE_LERP_OUT = 6.0;
+/** 风暴浪涌的阻力增益：浪高倍率超出 1 的部分按比例加在水阻力上，顶浪更吃力 */
+const STORM_DRAG_GAIN = 0.35;
 
 /** 风状态（WeatherSystem 派生天气消费） */
 export interface WindState {
@@ -132,7 +141,7 @@ export interface WindSystem {
   update: (dt: number, elapsed: number) => void;
   /** 风向量（风吹向的方向 × 有效风速，含阵风）；雨丝视觉与里程碑 2 帆推力消费 */
   getWindVector: () => { x: number; z: number };
-  /** 木筏航速（=海流 + 帆推力 + 划桨推力） */
+  /** 木筏航速（动量状态：推力与相对海流的水阻力共同演化） */
   getRaftVelocity: () => { x: number; z: number };
   /** 是否正在划桨（手持船桨按住左键；手持模型动画消费） */
   isPaddling: () => boolean;
@@ -176,7 +185,7 @@ export function createWindSystem(w: WorldView): WindSystem {
   const scroll = { x: 0, z: 0 };
   let distanceM = 0;
 
-  // 划桨状态：推力带加减速（起桨渐快、松桨滑行渐停），当前帧是否在划供动画/调试读
+  // 划桨推力（起桨渐快、收桨快速归零；松桨后的滑行由动量+阻力负责）
   const paddleVel = { x: 0, z: 0 };
   let paddlingNow = false;
   const camForward = new THREE.Vector3();
@@ -236,30 +245,44 @@ export function createWindSystem(w: WorldView): WindSystem {
     current.x += (lastWind.x * CURRENT_RATIO - current.x) * k;
     current.z += (lastWind.z * CURRENT_RATIO - current.z) * k;
 
+    // 5.5 风暴浪涌阻力增益：浪高倍率超出 1 的部分按比例加在水阻力上（顶浪更吃力）
+    const stormDrag = 1 + STORM_DRAG_GAIN * Math.max(0, w.weather().getWaveHeightMultiplier() - 1);
+
     // 6. 帆推力：只有张开的帆吃风；推力方向 = 风吹向的方向，收帆即归零
     const sailFactor = SAIL_THRUST_PER_SAIL * Math.min(openSailCount(), SAIL_COUNT_CAP);
 
     // 6.5 划桨推力：手持船桨按住左键 = 向视角方向推进（不消耗体力）。
-    //     轻微正弦是划水节奏；开帆时力度折减为"微调航向"，松桨后滑行渐停。
+    //     轻微正弦是划水节奏；开帆时力度折减为"微调航向"。
     paddlingNow = isRowing();
-    let paddleTargetX = 0;
-    let paddleTargetZ = 0;
+    let thrustX = lastWind.x * sailFactor;
+    let thrustZ = lastWind.z * sailFactor;
     if (paddlingNow) {
       camForward.set(0, 0, -1).applyQuaternion(w.camera.quaternion);
       camForward.y = 0;
       if (camForward.lengthSq() > 1e-4) camForward.normalize();
       const stroke = (0.85 + 0.15 * Math.sin(elapsed * 3.4)) * PADDLE_THRUST;
       const authority = sailFactor > 0 ? PADDLE_TRIM_FACTOR : 1;
-      paddleTargetX = camForward.x * stroke * authority;
-      paddleTargetZ = camForward.z * stroke * authority;
+      const kIn = Math.min(1, dt * PADDLE_LERP_IN);
+      paddleVel.x += (camForward.x * stroke * authority - paddleVel.x) * kIn;
+      paddleVel.z += (camForward.z * stroke * authority - paddleVel.z) * kIn;
+    } else {
+      // 收桨：推力快速归零（只平滑收桨瞬间）；松桨后的滑行交给动量+阻力
+      const kOut = Math.min(1, dt * PADDLE_LERP_OUT);
+      paddleVel.x -= paddleVel.x * kOut;
+      paddleVel.z -= paddleVel.z * kOut;
     }
-    const kPaddle = Math.min(1, dt * (paddlingNow ? PADDLE_LERP_IN : PADDLE_LERP_OUT));
-    paddleVel.x += (paddleTargetX - paddleVel.x) * kPaddle;
-    paddleVel.z += (paddleTargetZ - paddleVel.z) * kPaddle;
+    thrustX += paddleVel.x;
+    thrustZ += paddleVel.z;
 
-    // 7. 木筏航速 = 海流 + 帆推力 + 划桨推力；跑步机滚动累计即航程
-    raftVel.x = current.x + lastWind.x * sailFactor + paddleVel.x;
-    raftVel.z = current.z + lastWind.z * sailFactor + paddleVel.z;
+    // 7. 动量积分：raftVel 是惯性状态（不再逐帧"海流+帆+桨"硬算相加）。
+    //    推力 + 二次水阻力（只作用于相对海流的速度）——松桨后的长滑行、
+    //    顶流划桨的净速、满帆极速全部由推力-阻力平衡 v* = sqrt(推力/k) 涌现。
+    const relX = raftVel.x - current.x;
+    const relZ = raftVel.z - current.z;
+    const relSpeed = Math.hypot(relX, relZ);
+    const drag = WATER_DRAG * stormDrag * relSpeed;
+    raftVel.x += (thrustX - drag * relX) * dt;
+    raftVel.z += (thrustZ - drag * relZ) * dt;
     const speed = Math.hypot(raftVel.x, raftVel.z);
     if (speed > MAX_RAFT_SPEED) {
       const clamp = MAX_RAFT_SPEED / speed;
