@@ -1,0 +1,60 @@
+import type * as THREE from 'three';
+import type { GameAction } from './engine/inputMap';
+import type { RaftGameDefinition } from '../data/gameDefinition';
+import type { OceanEnvironment } from './systems/environment/ocean';
+import type { WeatherSystem } from './systems/environment/weather';
+import type { WindSystem } from './systems/environment/wind';
+import type { DebrisSystem } from './systems/debris';
+import type { PlayerSystem } from './systems/player';
+import type { InventorySystem } from './systems/inventory';
+import type { BuildSystem } from './systems/build';
+import type { HookSystem } from './systems/hook';
+import type { StationSystem } from './systems/stations';
+import type { InteractionSystem } from './systems/interact';
+import type { SharkSystem } from './systems/shark';
+import type { TimeSystem } from './systems/time';
+
+/**
+ * WorldView —— 系统工厂拉取依赖的唯一窗口。
+ *
+ * 每个系统文件底部有一个 createXxxSystem(w: WorldView) 工厂，知道自己
+ * 需要什么、怎么接线；createRaftGame 创建依赖窗口，systems/index.ts
+ * 按顺序调用工厂并登记系统。
+ * 加一个系统的成本 = 新文件 + systems/index.ts 的 key/add + 消费点依赖声明。
+ *
+ * 约束：
+ * - 系统引用全部是惰性 getter：既解循环依赖，也把"只能引用已构造系统"
+ *   的约束交给构造顺序（工厂调用顺序）保证。
+ * - 本文件只含类型（import type），不产生运行时依赖环。
+ */
+export interface WorldView {
+  // 引擎基础设施
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  /** 动作级按键轮询（键位定义在 engine/inputMap.ts，系统不接触原始键码） */
+  isActionDown: (action: GameAction) => boolean;
+  /** 鼠标按键轮询（0=左键；划桨等"按住"逻辑用） */
+  isMouseDown: (button: number) => boolean;
+  isPointerLocked: () => boolean;
+
+  // 游戏定义（启动配置与新游戏初始状态；运行状态归各系统所有）
+  definition: RaftGameDefinition;
+
+  // 系统（惰性：按 createSystems 的工厂调用顺序由先到后可用）
+  player: () => PlayerSystem;
+  inventory: () => InventorySystem;
+  debris: () => DebrisSystem;
+  build: () => BuildSystem;
+  hook: () => HookSystem;
+  stations: () => StationSystem;
+  interaction: () => InteractionSystem;
+  shark: () => SharkSystem;
+  time: () => TimeSystem;
+  ocean: () => OceanEnvironment;
+  weather: () => WeatherSystem;
+  wind: () => WindSystem;
+
+  // 世界级服务
+  /** 存档（BuildSystem 放置后自动存档、SharkSystem 击杀后存档走这里） */
+  saveWorld: (notify?: boolean) => void;
+}

@@ -1,3 +1,15 @@
+/**
+ * 跨切面类型：物品/建筑枚举、UI 回调数据、存档格式、统计数值。
+ *
+ * 与 src/game/entities/ 的边界：entities/ 放"有世界在场感"的实体纯数据
+ * （PlayerState/SharkData/DebrisObject，由各管理器系统持有
+ * 集合）；本文件放它们引用的共享基型与不含实体生命周期的数据
+ * （PlacedStructure 因与存档格式 SerializedStructure、UI 弹窗强耦合，
+ * 暂留于此，待存档类型独立成模块时再迁）。
+ */
+
+import type { SharkData } from '../game/entities/shark';
+
 export type WeatherType = 'CLEAR' | 'LIGHT_FOG' | 'HEAVY_RAIN';
 
 export type ResourceId =
@@ -20,9 +32,6 @@ export type ResourceId =
   | 'shark_bait'
   | 'shark_meat'
   | 'cooked_shark_meat'
-  | 'salvaged_scrap_block'
-  | 'power_cell'
-  | 'locator_node'
   | 'ironwood'
   | 'titanium_ingot'
   | 'berry'
@@ -33,11 +42,17 @@ export type ToolId =
   | 'hook'
   | 'hammer'
   | 'spear'
-  | 'fishing_rod'
   | 'metal_spear'
-  | 'reinforced_hook';
+  | 'reinforced_hook'
+  | 'paddle';
 
 export type ItemId = ResourceId | ToolId;
+
+/** 手持工具左键点击时触发的动作种类（具体执行由 Raft 组合根接线到各系统） */
+export type ToolActionKind =
+  | 'throw_hook'
+  | 'spear_thrust'
+  | 'scoop_saltwater';
 
 export type BuildingType =
   | 'foundation'
@@ -55,10 +70,7 @@ export type BuildingType =
   | 'chest'
   | 'sail'
   | 'bed'
-  | 'crafting_table'
-  | 'debris_compactor'
-  | 'signal_receiver'
-  | 'locator_antenna';
+  | 'crafting_table';
 
 export interface ItemDef {
   id: ItemId;
@@ -69,6 +81,8 @@ export interface ItemDef {
   description: string;
   stackSize: number;
   durabilityMax?: number;
+  /** 左键主动作（仅工具类物品有；缺省时左键走通用的消耗/使用路径） */
+  primaryAction?: ToolActionKind;
 }
 
 export interface CraftingRecipe {
@@ -106,17 +120,6 @@ export interface InventorySlot {
   durability?: number;
 }
 
-export interface DebrisObject {
-  id: number;
-  mesh: any; // THREE.Group
-  type: 'wood' | 'plastic' | 'leaf' | 'barrel' | 'crate' | 'stone' | 'scrap';
-  caught: boolean;
-  pos: { x: number; y: number; z: number };
-  bobPhase: number;
-  rotSpeed: number;
-  yields: Partial<Record<ResourceId, number>>;
-}
-
 export interface PlacedStructure {
   id: string;
   type: BuildingType;
@@ -138,67 +141,9 @@ export interface PlacedStructure {
     cropGrowProgress?: number;
     trappedItems?: ResourceId[];
     chestItems?: InventorySlot[];
+    /** 帆是否张开（E 交互切换；张开时为木筏提供风推力） */
+    sailOpen?: boolean;
   };
-}
-
-export type SharkState = 'CIRCLING' | 'STALKING_PLAYER' | 'ATTACKING_RAFT' | 'ATTACKING_PLAYER' | 'FLEEING';
-
-export interface SharkData {
-  health: number;
-  maxHealth: number;
-  state: SharkState;
-  pos: { x: number; y: number; z: number };
-  targetPos: { x: number; y: number; z: number };
-  angle: number;
-  circleRadius: number;
-  speed: number;
-  targetPlankKey: string | null;
-  biteTimer: number;
-  fleeTimer: number;
-  inWaterAttackTimer: number;
-}
-
-export type AchievementCategory = 'fishing' | 'building' | 'survival' | 'exploration';
-
-export interface Achievement {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  category: AchievementCategory;
-  progress: number;
-  target: number;
-  isUnlocked: boolean;
-  unlockedAt?: number;
-}
-
-export interface PlayerMilestones {
-  fishCaught: number;
-  raftTilesBuilt: number;
-  totalStructuresBuilt: number;
-  daysSurvived: number;
-  debrisHooked: number;
-  mealsCooked: number;
-  waterPurified: number;
-  sharkRepelled: number;
-  islandResourcesHarvested: number;
-  itemsCrafted: number;
-}
-
-export interface RemotePlayer {
-  id: string;
-  name: string;
-  color: string;
-  x: number;
-  y: number;
-  z: number;
-  yaw: number;
-  pitch: number;
-  health: number;
-  maxHealth: number;
-  isSwimming: boolean;
-  activeItem?: ItemId | null;
-  lastUpdated: number;
 }
 
 export interface SerializedStructure {
@@ -216,74 +161,18 @@ export interface SerializedStructure {
   data?: PlacedStructure['data'];
 }
 
-export type StoryLocationId =
-  | 'sunken_beacon'
-  | 'leviathan_wreck'
-  | 'redwood_atoll'
-  | 'scrap_city'
-  | 'biodome_colony'
-  | 'trench_spire'
-  | 'glacier_station'
-  | 'last_haven';
-
-export interface LoreLog {
-  id: string;
-  title: string;
-  source: string;
-  timestamp: string;
-  snippet: string;
-  fullText: string[];
-}
-
-export interface StoryLocation {
-  id: StoryLocationId;
-  name: string;
-  tagline: string;
-  frequency: number; // e.g. 104.2 MHz
-  x: number;
-  z: number;
-  icon: string;
-  discovered: boolean;
-  restored: boolean;
-  objective: string;
-  loreLogs: LoreLog[];
-  rewards: Partial<Record<ResourceId, number>>;
-}
-
-export interface SignalArrayState {
-  receiverPlaced: boolean;
-  nodesPlacedCount: number; // 0..3
-  powerCellInserted: boolean;
-  activeFrequency: number;
-  activeLocationId: StoryLocationId;
-}
-
-export interface CompactorState {
-  loadedJunk: number; // Max 10 junk to compact 1 block
-  maxJunk: number;
-  isCompacting: boolean;
-  compactProgress: number;
-}
-
-export interface MerchantItem {
-  id: string;
-  name: string;
-  icon: string;
-  costBlocks: number;
-  description: string;
-  yieldItem: ResourceId | ItemId;
-  yieldCount: number;
-  category: 'blueprints' | 'energy' | 'alloys' | 'survival';
-}
+// NOTE: Story/landmark types (StoryLocationId, StoryLocation, LoreLog,
+// SignalArrayState) were removed 2026-11-03 — see docs/FEATURES_OFF.md.
 
 export interface WorldSaveData {
   version: number;
-  roomId: string;
   worldName: string;
   timestamp: number;
   dayCount: number;
   dayTime: number;
   sharkDefeatedOnce: boolean;
+  /** v2 起保存每条鲨鱼；旧存档缺省时由新游戏定义补建。 */
+  sharks?: SharkData[];
   structures: SerializedStructure[];
   player?: {
     stats: PlayerStats;
@@ -293,14 +182,10 @@ export interface WorldSaveData {
     yaw: number;
     pitch: number;
   };
-  milestones?: PlayerMilestones;
-  unlockedAchievementIds?: string[];
-  signalArray?: {
-    powerCellInserted: boolean;
-    activeFrequency: number;
-    activeLocationId: StoryLocationId;
-  };
-  unlockedLoreIds?: string[];
-  completedLocationIds?: StoryLocationId[];
+  // NOTE: Legacy save fields `roomId` (multiplayer server room, removed
+  // 2026-11-03), `milestones` / `unlockedAchievementIds` (achievement system)
+  // and `signalArray` / `unlockedLoreIds` / `completedLocationIds`
+  // (story/landmark system) are intentionally accepted on load but ignored —
+  // see docs/FEATURES_OFF.md.
 }
 

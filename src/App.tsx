@@ -3,121 +3,72 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { RaftEngine } from './game/engine';
-import { PlayerStats, HotbarSlot, InventorySlot, BuildingType, PlacedStructure, SharkData, WeatherType, RemotePlayer, SignalArrayState } from './types/game';
-import { HUD } from './components/HUD';
-import { InventoryCraftingModal } from './components/InventoryCraftingModal';
-import { PauseMenu } from './components/PauseMenu';
-import { CompactorModal } from './components/CompactorModal';
-import { MerchantModal } from './components/MerchantModal';
-import { StoryJournalModal } from './components/StoryJournalModal';
+import React, { useEffect, useRef, useState, useCallback, Suspense } from 'react';
+import { createRaftGame, RaftGame } from './game/raftGame';
+import { BuildingType } from './types/game';
+import { HUD } from './ui/components/HUD';
+import { InventoryCraftingModal } from './ui/components/InventoryCraftingModal';
+import { PauseMenu } from './ui/components/PauseMenu';
+import { useUiStore } from './ui/uiStore';
+import { events } from './core/events';
 
-interface Toast {
-  id: number;
-  text: string;
-  color: string;
-}
+// 调试面板仅开发期存在：DEV=false 的生产构建会摇掉整个分支与动态导入，
+// 面板代码不进产物（摘除清单见 RaftGameDebugCommands 注释）。
+const OceanDebugPanel = import.meta.env.DEV
+  ? React.lazy(() =>
+      import('./ui/components/OceanDebugPanel').then((m) => ({ default: m.OceanDebugPanel }))
+    )
+  : null;
 
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<RaftEngine | null>(null);
+  const gameRef = useRef<RaftGame | null>(null);
 
-  // React State mirrored from engine
-  const [stats, setStats] = useState<PlayerStats>({
-    health: 100,
-    maxHealth: 100,
-    hunger: 90,
-    maxHunger: 100,
-    thirst: 90,
-    maxThirst: 100,
-    isDead: false,
-  });
+  // 游戏数据快照：由事件桥接进 uiStore，React 只订阅不镜像
+  const stats = useUiStore((s) => s.stats);
+  const hotbar = useUiStore((s) => s.hotbar);
+  const activeHotbarIdx = useUiStore((s) => s.activeHotbarIdx);
+  const inventory = useUiStore((s) => s.inventory);
+  const shark = useUiStore((s) => s.shark);
+  const interactPrompt = useUiStore((s) => s.interactPrompt);
+  const sharkAlert = useUiStore((s) => s.sharkAlert);
+  const dayCount = useUiStore((s) => s.dayCount);
+  const timeStr = useUiStore((s) => s.timeStr);
+  const dayProgress = useUiStore((s) => s.dayProgress);
+  const weather = useUiStore((s) => s.weather);
+  const activeChest = useUiStore((s) => s.activeChest);
 
-  const [hotbar, setHotbar] = useState<HotbarSlot[]>([
-    { itemId: 'hook', count: 1, durability: 50 },
-    { itemId: 'hammer', count: 1, durability: 100 },
-    { itemId: 'spear', count: 1, durability: 40 },
-    { itemId: 'cup_empty', count: 1 },
-    { itemId: 'wood', count: 6 },
-    { itemId: 'plastic', count: 6 },
-    { itemId: 'leaf', count: 4 },
-    { itemId: null, count: 0 },
-  ]);
-  const [activeHotbarIdx, setActiveHotbarIdx] = useState(0);
+  // Toasts 由事件总线 (core/events.ts) 驱动，桥接见 ui/uiStore.ts
+  const toasts = useUiStore((s) => s.toasts);
 
-  const [inventory, setInventory] = useState<InventorySlot[]>(
-    Array.from({ length: 16 }, () => ({ itemId: null, count: 0 }))
-  );
-
-  const [sharkData, setSharkData] = useState<SharkData>({
-    health: 100,
-    maxHealth: 100,
-    state: 'CIRCLING',
-    pos: { x: 20, y: -0.4, z: 0 },
-    targetPos: { x: 20, y: -0.4, z: 0 },
-    angle: 0,
-    circleRadius: 18,
-    speed: 3.5,
-    targetPlankKey: null,
-    biteTimer: 0,
-    fleeTimer: 0,
-    inWaterAttackTimer: 0,
-  });
-
-  const [interactPrompt, setInteractPrompt] = useState<string | null>(null);
-  const [sharkAlert, setSharkAlert] = useState(false);
-  const [hookState, setHookState] = useState<string>('IDLE');
-  const [hookPower, setHookPower] = useState(0);
-
-  // UI Modals & Overlays
+  // UI Modals & Overlays（弹窗开关是 UI 自己的状态；指针锁副作用留在 App）
   const [isPointerLocked, setIsPointerLocked] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
-  const [activeChest, setActiveChest] = useState<PlacedStructure | null>(null);
-  const [isCompactorOpen, setIsCompactorOpen] = useState(false);
-  const [isMerchantOpen, setIsMerchantOpen] = useState(false);
-  const [isStoryJournalOpen, setIsStoryJournalOpen] = useState(false);
+  const [isOceanDebugOpen, setIsOceanDebugOpen] = useState(false);
+  const [hookState, setHookState] = useState<string>('IDLE');
+  const [hookPower, setHookPower] = useState(0);
   const [isBuildMode, setIsBuildMode] = useState(false);
   const [isDemolishMode, setIsDemolishMode] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState<BuildingType>('foundation');
-
-  // Signal Array Navigation & Story Mode State
-  const [signalArray, setSignalArray] = useState<SignalArrayState>({
-    receiverPlaced: false,
-    nodesPlacedCount: 0,
-    powerCellInserted: false,
-    activeFrequency: 104.2,
-    activeLocationId: 'sunken_beacon',
-  });
-  const [playerPos, setPlayerPos] = useState({ x: 0, y: 0, z: 0 });
-  const [playerYaw, setPlayerYaw] = useState(0);
-
-  // Time / Day & Weather
-  const [dayCount, setDayCount] = useState(1);
-  const [timeStr, setTimeStr] = useState('06:00');
-  const [dayProgress, setDayProgress] = useState(0.25);
-  const [weather, setWeather] = useState<WeatherType>('CLEAR');
-
-  const [multiplayerStatus, setMultiplayerStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'offline'>('connecting');
-  const [remotePlayers, setRemotePlayers] = useState<RemotePlayer[]>([]);
-  const [localPlayerName, setLocalPlayerName] = useState('Survivor');
-  const [localPlayerColor, setLocalPlayerColor] = useState('#38bdf8');
   const [sharkDefeatedOnce, setSharkDefeatedOnce] = useState(false);
-  const [roomId, setRoomId] = useState('ocean-world-1');
 
-  // Toasts
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const addToast = useCallback((text: string, color: string = '#38bdf8') => {
-    const id = Date.now() + Math.random();
-    setToasts((prev) => [...prev.slice(-4), { id, text, color }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 2400);
-  }, []);
+  const setActiveChest = useUiStore((s) => s.setActiveChest);
 
   const toggleInventory = useCallback(() => {
     setIsInventoryOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        document.exitPointerLock?.();
+      } else {
+        document.body.requestPointerLock?.();
+      }
+      return next;
+    });
+  }, []);
+
+  // 海面调参面板（Backquote）：打开退出指针锁以便拖滑杆，关闭恢复
+  const toggleOceanDebug = useCallback(() => {
+    setIsOceanDebugOpen((prev) => {
       const next = !prev;
       if (next) {
         document.exitPointerLock?.();
@@ -132,112 +83,61 @@ export default function App() {
   useEffect(() => {
     if (!canvasMountRef.current) return;
 
-    const engine = new RaftEngine(canvasMountRef.current, {
-      onStatsChange: (newStats) => setStats(newStats),
-      onHotbarChange: (newHotbar, activeIdx) => {
-        setHotbar(newHotbar);
-        setActiveHotbarIdx(activeIdx);
-      },
-      onInventoryChange: (newInv) => setInventory(newInv),
-      onToast: (text, color) => addToast(text, color),
-      onInteractPrompt: (prompt) => setInteractPrompt(prompt),
-      onSharkAlert: (alerting) => setSharkAlert(alerting),
-      onSharkDataChange: (newShark) => setSharkData(newShark),
-      onOpenChest: (chest) => {
-        setActiveChest(chest);
-        document.exitPointerLock?.();
-      },
-      onTimeChange: (day, time, prog) => {
-        setDayCount(day);
-        setTimeStr(time);
-        setDayProgress(prog);
-      },
-      onWeatherChange: (newWeather) => setWeather(newWeather),
-      onBuildingSelect: (b) => setSelectedBuilding(b),
-      onToggleInventory: () => toggleInventory(),
-      onMultiplayerStatusChange: (status) => setMultiplayerStatus(status),
-      onMultiplayerPlayersChange: (players) => setRemotePlayers(players),
-      onSignalArrayChange: (newSignalArray) => setSignalArray(newSignalArray),
-      onOpenCompactor: () => {
-        setIsCompactorOpen(true);
-        document.exitPointerLock?.();
-      },
-      onOpenMerchant: () => {
-        setIsMerchantOpen(true);
-        document.exitPointerLock?.();
-      },
-      onOpenStoryJournal: () => {
-        setIsStoryJournalOpen(true);
-        document.exitPointerLock?.();
-      },
-    });
+    const game = createRaftGame(canvasMountRef.current);
 
-    engineRef.current = engine;
-    if (engine.multiplayer) {
-      setLocalPlayerName(engine.multiplayer.localName);
-      setLocalPlayerColor(engine.multiplayer.localColor);
-    }
+    gameRef.current = game;
 
     // Pointer lock listener
     const onPointerLockChange = () => {
       const locked = document.pointerLockElement === canvasMountRef.current || document.pointerLockElement === document.body;
       setIsPointerLocked(locked);
-      if (engineRef.current) {
-        engineRef.current.isPointerLocked = locked;
+      if (gameRef.current) {
+        gameRef.current.isPointerLocked = locked;
       }
     };
 
     document.addEventListener('pointerlockchange', onPointerLockChange);
 
-    // Periodic state poller for hook charging bar and build mode
-    const pollInterval = window.setInterval(() => {
-      if (engineRef.current) {
-        setHookState(engineRef.current.hookState);
-        setHookPower(engineRef.current.hookPower);
-        setIsBuildMode(engineRef.current.isBuildMode);
-        setIsDemolishMode(engineRef.current.isDemolishMode);
-        setSelectedBuilding(engineRef.current.selectedBuildingType);
-        setSharkDefeatedOnce(engineRef.current.sharkDefeatedOnce);
-        setPlayerPos({
-          x: engineRef.current.player.pos.x,
-          y: engineRef.current.player.pos.y,
-          z: engineRef.current.player.pos.z,
-        });
-        setPlayerYaw(engineRef.current.player.yaw);
-      }
-    }, 50);
+    // Build selection now arrives via the event bus (core/events.ts)
+    const offBuildingSelect = events.on('buildingSelected', ({ type }) => setSelectedBuilding(type));
 
-    // Keyboard shortcut for I or Tab (Inventory), J (Story Journal)
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'KeyI' || e.code === 'Tab') {
-        e.preventDefault();
-        toggleInventory();
-      } else if (e.code === 'KeyJ') {
-        e.preventDefault();
-        setIsStoryJournalOpen((prev) => {
-          const next = !prev;
-          if (next) document.exitPointerLock?.();
-          else document.body.requestPointerLock?.();
-          return next;
-        });
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
+    // 请求类事件：开箱需要退出指针锁（数据写入由 uiStore 桥接完成）
+    const offOpenChest = events.on('openChestRequested', () => {
+      document.exitPointerLock?.();
+    });
+
+    // 背包快捷键（I / Tab）经 inputActions 发出 toggleInventoryRequested
+    const offToggleInventory = events.on('toggleInventoryRequested', () => toggleInventory());
+
+    // 海面调参面板快捷键（`）经 inputActions 发出 toggleOceanDebugRequested
+    const offToggleOceanDebug = events.on('toggleOceanDebugRequested', () => toggleOceanDebug());
+
+    // 高频 HUD 值由 Raft 门面统一采样，React 不接触具体系统。
+    const pollInterval = window.setInterval(() => {
+      const current = gameRef.current;
+      if (!current) return;
+      const hud = current.sampleHud();
+      setHookState(hud.hookState);
+      setHookPower(hud.hookPower);
+      setIsBuildMode(hud.isBuildMode);
+      setIsDemolishMode(hud.isDemolishMode);
+      setSelectedBuilding(hud.selectedBuilding);
+      setSharkDefeatedOnce(hud.sharkDefeatedOnce);
+    }, 50);
 
     return () => {
       window.clearInterval(pollInterval);
+      offBuildingSelect();
+      offOpenChest();
+      offToggleInventory();
+      offToggleOceanDebug();
       document.removeEventListener('pointerlockchange', onPointerLockChange);
-      window.removeEventListener('keydown', onKeyDown);
-      engine.dispose();
+      game.dispose();
     };
-  }, [addToast, toggleInventory]);
+  }, [toggleInventory]);
 
   const requestLock = () => {
     setIsInventoryOpen(false);
-    setActiveChest(null);
-    setIsCompactorOpen(false);
-    setIsMerchantOpen(false);
-    setIsStoryJournalOpen(false);
     setActiveChest(null);
     document.body.requestPointerLock?.();
   };
@@ -249,54 +149,44 @@ export default function App() {
 
     // If clicking already active food/drink slot while hungry/thirsty, auto-consume!
     if (activeHotbarIdx === idx && ((isFood && stats.hunger < 98) || (isDrink && stats.thirst < 98))) {
-      engineRef.current?.consumeSlot(false, idx);
+      gameRef.current?.commands.consumeSlot(false, idx);
       return;
     }
 
-    engineRef.current?.setActiveHotbarSlot(idx);
-    setActiveHotbarIdx(idx);
+    gameRef.current?.commands.selectHotbarSlot(idx);
   };
 
   const handleSelectBuilding = (b: BuildingType) => {
     setSelectedBuilding(b);
-    if (engineRef.current) {
-      engineRef.current.selectBuildingType(b);
+    if (gameRef.current) {
+      gameRef.current.commands.selectBuilding(b);
       setIsBuildMode(true);
       setIsDemolishMode(false);
     }
   };
 
   const handleToggleBuildMode = () => {
-    if (!engineRef.current) return;
-    engineRef.current.isBuildMode = !engineRef.current.isBuildMode;
-    setIsBuildMode(engineRef.current.isBuildMode);
+    const game = gameRef.current;
+    if (!game) return;
+    game.commands.toggleBuildMode();
+    setIsBuildMode(game.sampleHud().isBuildMode);
   };
 
   const handleCraftRecipe = (recipeId: string) => {
-    engineRef.current?.craftRecipe(recipeId);
+    gameRef.current?.commands.craftRecipe(recipeId);
   };
 
   const handleRespawn = () => {
-    engineRef.current?.respawnPlayer();
+    gameRef.current?.commands.respawn();
     requestLock();
   };
 
   const handleSaveWorld = () => {
-    engineRef.current?.saveWorld(true);
+    gameRef.current?.commands.saveWorld(true);
   };
 
   const handleResetWorld = () => {
-    engineRef.current?.resetWorld();
-  };
-
-  const handleUpdatePlayerName = (name: string) => {
-    setLocalPlayerName(name);
-    engineRef.current?.multiplayer?.setPlayerName(name);
-  };
-
-  const handleSwitchRoom = (newRoom: string) => {
-    setRoomId(newRoom);
-    engineRef.current?.switchRoom(newRoom);
+    gameRef.current?.commands.resetWorld();
   };
 
   return (
@@ -312,7 +202,7 @@ export default function App() {
         onSelectSlot={handleSelectSlot}
         interactPrompt={interactPrompt}
         sharkAlert={sharkAlert}
-        shark={sharkData}
+        shark={shark}
         hookState={hookState}
         hookPower={hookPower}
         isBuildMode={isBuildMode}
@@ -329,27 +219,7 @@ export default function App() {
         timeStr={timeStr}
         dayProgress={dayProgress}
         weather={weather}
-        multiplayerStatus={multiplayerStatus}
-        remotePlayers={remotePlayers}
-        localPlayerName={localPlayerName}
-        localPlayerColor={localPlayerColor}
         sharkDefeatedOnce={sharkDefeatedOnce}
-        signalArray={signalArray}
-        playerPos={playerPos}
-        playerYaw={playerYaw}
-        onTuneFrequency={(freq) => engineRef.current?.tuneSignalFrequency(freq)}
-        onOpenStoryJournal={() => {
-          setIsStoryJournalOpen(true);
-          document.exitPointerLock?.();
-        }}
-        onOpenCompactor={() => {
-          setIsCompactorOpen(true);
-          document.exitPointerLock?.();
-        }}
-        onOpenMerchant={() => {
-          setIsMerchantOpen(true);
-          document.exitPointerLock?.();
-        }}
       />
 
       {/* Floating Notifications / Toasts */}
@@ -381,70 +251,25 @@ export default function App() {
         }}
         onCraftRecipe={handleCraftRecipe}
         onConsumeSlot={(isInv, idx) => {
-          engineRef.current?.consumeSlot(isInv, idx);
+          gameRef.current?.commands.consumeSlot(isInv, idx);
         }}
         stats={stats}
       />
 
-      {/* Debris Compactor Hydraulic Press Modal */}
-      <CompactorModal
-        isOpen={isCompactorOpen}
-        onClose={() => {
-          setIsCompactorOpen(false);
-          document.body.requestPointerLock?.();
-        }}
-        inventory={inventory}
-        hotbar={hotbar}
-        onFeedJunk={(res, count) => {
-          return engineRef.current ? engineRef.current.feedCompactorJunk(res, count) : false;
-        }}
-        onForgeBlock={() => {
-          return engineRef.current ? engineRef.current.forgeCompactorBlock() : false;
-        }}
-      />
-
-      {/* Drifting Survivor Outpost Barter Stall */}
-      <MerchantModal
-        isOpen={isMerchantOpen}
-        onClose={() => {
-          setIsMerchantOpen(false);
-          document.body.requestPointerLock?.();
-        }}
-        salvagedBlockCount={[...hotbar, ...inventory].reduce(
-          (sum, s) => sum + (s.itemId === 'salvaged_scrap_block' ? s.count : 0),
-          0
-        )}
-        onBuyItem={(item) => {
-          return engineRef.current ? engineRef.current.buyMerchantItem(item) : false;
-        }}
-      />
-
-      {/* Shattered Horizons Story & Navigation Journal */}
-      <StoryJournalModal
-        isOpen={isStoryJournalOpen}
-        onClose={() => {
-          setIsStoryJournalOpen(false);
-          document.body.requestPointerLock?.();
-        }}
-        signalArray={signalArray}
-        onTuneFrequency={(freq) => {
-          engineRef.current?.tuneSignalFrequency(freq);
-        }}
-      />
+      {/* 海面调参面板（Backquote 开关；打开期间抑制暂停菜单；仅开发构建挂载） */}
+      {import.meta.env.DEV && OceanDebugPanel && isOceanDebugOpen && gameRef.current && (
+        <Suspense fallback={null}>
+          <OceanDebugPanel game={gameRef.current} onClose={toggleOceanDebug} />
+        </Suspense>
+      )}
 
       {/* Pause & Start Splash Screen */}
       <PauseMenu
-        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest && !isCompactorOpen && !isMerchantOpen && !isStoryJournalOpen}
+        isOpen={!isPointerLocked && !isInventoryOpen && !activeChest && !isOceanDebugOpen}
         onResume={requestLock}
         onRespawn={handleRespawn}
         onSaveWorld={handleSaveWorld}
         onResetWorld={handleResetWorld}
-        multiplayerStatus={multiplayerStatus}
-        remotePlayersCount={remotePlayers.length}
-        playerName={localPlayerName}
-        onUpdatePlayerName={handleUpdatePlayerName}
-        roomId={roomId}
-        onSwitchRoom={handleSwitchRoom}
       />
     </div>
   );
