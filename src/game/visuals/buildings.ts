@@ -443,54 +443,172 @@ export function createChestMesh(): THREE.Group {
   return group;
 }
 
-// Canvas Sail
+// Square-rigged Canvas Sail
+
+/** 在两点之间创建圆杆/绳索；所有坐标均相对调用方的父节点。 */
+function createCylinderBetween(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  radius: number,
+  material: THREE.Material,
+  radialSegments = 8,
+): THREE.Mesh {
+  const direction = new THREE.Vector3().subVectors(end, start);
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, direction.length(), radialSegments),
+    material,
+  );
+  mesh.position.copy(start).add(end).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  return mesh;
+}
 
 export function createSailMesh(): THREE.Group {
   const group = new THREE.Group();
 
-  // Mast pole
-  const mastGeo = new THREE.CylinderGeometry(0.08, 0.1, 3.2, 8);
-  const mast = new THREE.Mesh(mastGeo, darkWoodMaterial);
-  mast.position.set(0, 1.6, 0);
-  group.add(mast);
-
-  // Horizontal boom
-  const boomGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.8, 6);
-  const boom = new THREE.Mesh(boomGeo, darkWoodMaterial);
-  boom.rotation.z = Math.PI / 2;
-  boom.position.set(0.7, 0.8, 0);
-  group.add(boom);
-
-  // Canvas material shared by open cloth & furled roll
   const sailMat = new THREE.MeshStandardMaterial({
-    color: 0xf8fafc,
-    roughness: 0.9,
+    color: 0xeadfc8,
+    roughness: 1,
     side: THREE.DoubleSide,
   });
+  const seamMat = new THREE.LineBasicMaterial({ color: 0xbca77f });
 
-  // Billowing canvas (张开态)
-  const sailShape = new THREE.Shape();
-  sailShape.moveTo(0, 2.9);
-  sailShape.lineTo(1.4, 0.9);
-  sailShape.lineTo(0, 0.9);
-  sailShape.closePath();
-  const sail = new THREE.Mesh(new THREE.ShapeGeometry(sailShape), sailMat);
-  sail.name = 'sailCloth';
-  sail.position.set(0.05, 0, 0);
-  group.add(sail);
+  // Stepped mast, heel collar and rope lashings.
+  const mastBase = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.16, 0.38), darkWoodMaterial);
+  mastBase.position.y = 0.08;
+  mastBase.castShadow = true;
+  group.add(mastBase);
 
-  // Furled canvas roll（收拢态：缠在帆桁上的布卷）
-  const furled = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.7, 8), sailMat);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.12, 3.3, 10), darkWoodMaterial);
+  mast.position.set(0, 1.72, -0.1);
+  mast.castShadow = true;
+  group.add(mast);
+
+  const heelCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.17, 0.2, 8), ironMaterial);
+  heelCollar.position.set(0, 0.23, -0.1);
+  group.add(heelCollar);
+
+  const lashingGeo = new THREE.TorusGeometry(0.125, 0.022, 5, 12);
+  for (const y of [0.36, 0.42, 0.48, 2.96]) {
+    const lashing = new THREE.Mesh(lashingGeo, ropeMaterial);
+    lashing.rotation.x = Math.PI / 2;
+    lashing.position.set(0, y, -0.1);
+    group.add(lashing);
+  }
+
+  // Upper yard and lower boom frame a complete, gently tapered square sail.
+  const upperYard = createCylinderBetween(
+    new THREE.Vector3(-1.07, 2.93, 0),
+    new THREE.Vector3(1.07, 2.93, 0),
+    0.055,
+    darkWoodMaterial,
+  );
+  const lowerBoom = createCylinderBetween(
+    new THREE.Vector3(-1, 0.94, 0),
+    new THREE.Vector3(1, 0.94, 0),
+    0.065,
+    darkWoodMaterial,
+  );
+  upperYard.castShadow = true;
+  lowerBoom.castShadow = true;
+  group.add(upperYard, lowerBoom);
+
+  const clothWidth = 1.86;
+  const clothHeight = 1.84;
+  const canvasPoint = (u: number, v: number, zOffset = 0): THREE.Vector3 => {
+    const taper = 0.92 + 0.08 * ((v + 1) / 2);
+    return new THREE.Vector3(
+      u * (clothWidth / 2) * taper,
+      v * (clothHeight / 2),
+      0.26 * (1 - u * u) * (1 - v * v) + zOffset,
+    );
+  };
+
+  const clothGeometry = new THREE.PlaneGeometry(clothWidth, clothHeight, 14, 12);
+  const positions = clothGeometry.attributes.position;
+  for (let i = 0; i < positions.count; i++) {
+    const u = positions.getX(i) / (clothWidth / 2);
+    const v = positions.getY(i) / (clothHeight / 2);
+    const point = canvasPoint(u, v);
+    positions.setXYZ(i, point.x, point.y, point.z);
+  }
+  clothGeometry.computeVertexNormals();
+
+  const cloth = new THREE.Group();
+  cloth.name = 'sailCloth';
+  cloth.position.y = 1.94;
+
+  const canvas = new THREE.Mesh(clothGeometry, sailMat);
+  canvas.castShadow = true;
+  canvas.receiveShadow = true;
+  cloth.add(canvas);
+
+  // Panel seams follow the same curved surface as the canvas.
+  const addSeam = (points: THREE.Vector3[]) => {
+    const seam = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), seamMat);
+    // Decorative lines must not use Raycaster's generous default line threshold.
+    seam.raycast = () => {};
+    cloth.add(seam);
+  };
+  for (const u of [-0.5, 0, 0.5]) {
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i <= 16; i++) points.push(canvasPoint(u, -1 + (i / 16) * 2, 0.006));
+    addSeam(points);
+  }
+  for (const v of [-0.35, 0.35]) {
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i <= 16; i++) points.push(canvasPoint(-1 + (i / 16) * 2, v, 0.006));
+    addSeam(points);
+  }
+
+  // Rope-reinforced side edges.
+  for (const u of [-1, 1]) {
+    cloth.add(createCylinderBetween(canvasPoint(u, -1), canvasPoint(u, 1), 0.018, ropeMaterial, 6));
+  }
+  group.add(cloth);
+
+  // Furled state: several soft folds gathered along the lower boom with rope ties.
+  const furled = new THREE.Group();
   furled.name = 'sailFurled';
-  furled.rotation.z = Math.PI / 2;
-  furled.position.set(0.7, 0.92, 0);
+  const foldGeo = new THREE.SphereGeometry(0.15, 8, 6);
+  for (let i = 0; i < 9; i++) {
+    const fold = new THREE.Mesh(foldGeo, sailMat);
+    fold.position.set((i - 4) * 0.205, 1.02 + (i % 2) * 0.018, 0.025);
+    fold.scale.set(1, 0.65 + (i % 3) * 0.06, 0.78);
+    fold.castShadow = true;
+    furled.add(fold);
+  }
+  const tieGeo = new THREE.TorusGeometry(0.105, 0.018, 5, 10);
+  for (const x of [-0.62, 0, 0.62]) {
+    const tie = new THREE.Mesh(tieGeo, ropeMaterial);
+    tie.rotation.y = Math.PI / 2;
+    tie.position.set(x, 1.02, 0.025);
+    furled.add(tie);
+  }
   furled.visible = false;
   group.add(furled);
+
+  // Standing rigging, yard lifts and sheets make the sail read as working ship equipment.
+  const riggingSegments: Array<[THREE.Vector3, THREE.Vector3, number]> = [
+    [new THREE.Vector3(0, 3.25, -0.1), new THREE.Vector3(-1.04, 2.93, 0), 0.018],
+    [new THREE.Vector3(0, 3.25, -0.1), new THREE.Vector3(1.04, 2.93, 0), 0.018],
+    [new THREE.Vector3(0, 3.12, -0.12), new THREE.Vector3(-0.65, 0.16, -0.48), 0.016],
+    [new THREE.Vector3(0, 3.12, -0.12), new THREE.Vector3(0.65, 0.16, -0.48), 0.016],
+    [new THREE.Vector3(-0.86, 1.02, 0), new THREE.Vector3(-0.12, 0.42, 0.12), 0.018],
+    [new THREE.Vector3(0.86, 1.02, 0), new THREE.Vector3(0.12, 0.42, 0.12), 0.018],
+  ];
+  for (const [start, end, radius] of riggingSegments) {
+    group.add(createCylinderBetween(start, end, radius, ropeMaterial, 6));
+  }
+
+  const cleat = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.07, 0.08), darkWoodMaterial);
+  cleat.position.set(0, 0.42, 0.1);
+  group.add(cleat);
 
   return group;
 }
 
-/** 帆开/收视觉切换（建造系统在放置、E 交互与读档后调用） */
+/** 帆开/收视觉切换（建造系统在放置、F 交互与读档后调用） */
 export function applySailOpenState(mesh: THREE.Group, open: boolean): void {
   const cloth = mesh.getObjectByName('sailCloth');
   const furled = mesh.getObjectByName('sailFurled');

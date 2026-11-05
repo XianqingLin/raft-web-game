@@ -13,10 +13,8 @@ import { events } from '../../core/events';
 /**
  * InteractionSystem —— 交互系统（拆分自 engine.ts，split step 9）。
  *
- * 职责：木筏站点与漂浮鲨鱼肉的上下文交互提示，
- * 提示文案生成、aimed 状态维护；以及左键动作结算——
- * 优先级链与工具主动作执行表原属旧世界门面，后迁入本系统：aimed
- * 感知与"点下去发生什么"是同一关注点。
+ * 职责：木筏站点与漂浮鲨鱼肉的上下文交互提示、aimed 状态维护、
+ * F 设施交互，以及左键工具/道具使用动作执行表。
  */
 
 export interface AimedInteractable {
@@ -68,80 +66,61 @@ export class InteractionSystem implements Tickable {
 
   /** 每帧：重算站点瞄准状态并推送提示文案 */
   public update() {
-    const { camera, build, stations, shark } = this.ctx;
+    const { camera, build, shark } = this.ctx;
     const player = this.ctx.player();
     let foundInteract: AimedInteractable | null = null;
     let promptText: string | null = null;
 
-    // Check structures near player (by distance or raycast)
-    const directHit = build.getStructureUnderCrosshair();
-    const candidateStructures = directHit ? [directHit] : Array.from(build.structures.values());
-
-    for (let s of candidateStructures) {
-      const dist = camera.position.distanceTo(s.mesh.position);
-      if (dist < 3.4) {
-        if (s.type === 'purifier') {
-          if (s.data?.purifierFreshWater) {
-            foundInteract = { structure: s, action: 'collect_fresh' };
-            const willDrink = player.stats.thirst < 95;
-            promptText = `[Left-Click] ${willDrink ? 'Drink Clean Fresh Water (+Thirst)' : 'Store Clean Water in Cup'}`;
-            break;
-          } else if (s.data?.purifierSaltWater) {
-            promptText = `Purifier Distilling Seawater... (${Math.round(s.data.purifierBoilProgress || 0)}%)`;
-            foundInteract = { structure: s, action: 'boiling' };
-            break;
-          } else {
-            foundInteract = { structure: s, action: 'fill_salt' };
-            promptText = '[Left-Click] Auto-Boil Seawater in Purifier';
-            break;
-          }
-        } else if (s.type === 'grill') {
-          if (s.data?.grillDone) {
-            foundInteract = { structure: s, action: 'collect_grilled' };
-            const willEat = player.stats.hunger < 95;
-            promptText = `[Left-Click] ${willEat ? 'Eat Cooked Food (+Hunger & Health)' : 'Store Cooked Food in Inventory'}`;
-            break;
-          } else if (s.data?.grillItem) {
-            promptText = `Grill Sizzling Food... (${Math.round(s.data.grillProgress || 0)}%)`;
-            foundInteract = { structure: s, action: 'grilling' };
-            break;
-          } else {
-            foundInteract = { structure: s, action: 'place_food' };
-            promptText = '[Left-Click] Auto-Roast Fish or Potato on Grill';
-            break;
-          }
-        } else if (s.type === 'crop_plot') {
-          if (s.data?.cropPlanted && (s.data.cropGrowProgress || 0) >= 100) {
-            foundInteract = { structure: s, action: 'harvest_crop' };
-            promptText = '[Left-Click] Harvest Ripe Potatoes';
-            break;
-          } else if (!s.data?.cropPlanted) {
-            foundInteract = { structure: s, action: 'plant_crop' };
-            promptText = '[Left-Click] Plant Potato in Crop Plot';
-            break;
-          } else {
-            promptText = `Crop Growing... (${Math.round(s.data.cropGrowProgress || 0)}%)`;
-            foundInteract = { structure: s, action: 'growing' };
-            break;
-          }
-        } else if (s.type === 'collection_net' && (s.data?.trappedItems?.length || 0) > 0) {
-          foundInteract = { structure: s, action: 'collect_net' };
-          promptText = `[Left-Click] Collect ${s.data!.trappedItems!.length} Trapped Item(s)`;
-          break;
-        } else if (s.type === 'sail') {
-          foundInteract = { structure: s, action: 'toggle_sail' };
-          promptText = s.data?.sailOpen ? '[Left-Click] Furl the Sail' : '[Left-Click] Unfurl the Sail';
-          break;
-        } else if (s.type === 'chest') {
-          foundInteract = { structure: s, action: 'open_chest' };
-          promptText = '[Left-Click] Open Storage Chest';
-          break;
-        } else if (s.type === 'bed') {
-          foundInteract = { structure: s, action: 'sleep_bed' };
-          promptText = '[Left-Click] Sleep Until Morning';
-          break;
-        }
+    // Only the structure under the crosshair is interactive. Proximity alone
+    // must never select a station, especially a tall sail beside the player.
+    const s = build.getStructureUnderCrosshair();
+    if (s?.type === 'purifier') {
+      if (s.data?.purifierFreshWater) {
+        foundInteract = { structure: s, action: 'collect_fresh' };
+        const willDrink = player.stats.thirst < 95;
+        promptText = `[F] ${willDrink ? 'Drink Clean Fresh Water (+Thirst)' : 'Store Clean Water in Cup'}`;
+      } else if (s.data?.purifierSaltWater) {
+        promptText = `Purifier Distilling Seawater... (${Math.round(s.data.purifierBoilProgress || 0)}%)`;
+        foundInteract = { structure: s, action: 'boiling' };
+      } else {
+        foundInteract = { structure: s, action: 'fill_salt' };
+        promptText = '[F] Auto-Boil Seawater in Purifier';
       }
+    } else if (s?.type === 'grill') {
+      if (s.data?.grillDone) {
+        foundInteract = { structure: s, action: 'collect_grilled' };
+        const willEat = player.stats.hunger < 95;
+        promptText = `[F] ${willEat ? 'Eat Cooked Food (+Hunger & Health)' : 'Store Cooked Food in Inventory'}`;
+      } else if (s.data?.grillItem) {
+        promptText = `Grill Sizzling Food... (${Math.round(s.data.grillProgress || 0)}%)`;
+        foundInteract = { structure: s, action: 'grilling' };
+      } else {
+        foundInteract = { structure: s, action: 'place_food' };
+        promptText = '[F] Auto-Roast Fish or Potato on Grill';
+      }
+    } else if (s?.type === 'crop_plot') {
+      if (s.data?.cropPlanted && (s.data.cropGrowProgress || 0) >= 100) {
+        foundInteract = { structure: s, action: 'harvest_crop' };
+        promptText = '[F] Harvest Ripe Potatoes';
+      } else if (!s.data?.cropPlanted) {
+        foundInteract = { structure: s, action: 'plant_crop' };
+        promptText = '[F] Plant Potato in Crop Plot';
+      } else {
+        promptText = `Crop Growing... (${Math.round(s.data.cropGrowProgress || 0)}%)`;
+        foundInteract = { structure: s, action: 'growing' };
+      }
+    } else if (s?.type === 'collection_net' && (s.data?.trappedItems?.length || 0) > 0) {
+      foundInteract = { structure: s, action: 'collect_net' };
+      promptText = `[F] Collect ${s.data!.trappedItems!.length} Trapped Item(s)`;
+    } else if (s?.type === 'sail') {
+      foundInteract = { structure: s, action: 'toggle_sail' };
+      promptText = s.data?.sailOpen ? '[F] Furl the Sail' : '[F] Unfurl the Sail';
+    } else if (s?.type === 'chest') {
+      foundInteract = { structure: s, action: 'open_chest' };
+      promptText = '[F] Open Storage Chest';
+    } else if (s?.type === 'bed') {
+      foundInteract = { structure: s, action: 'sleep_bed' };
+      promptText = '[F] Sleep Until Morning';
     }
 
     // Check nearby floating shark meat
@@ -160,10 +139,14 @@ export class InteractionSystem implements Tickable {
 
   // ==================== Click / Interact Resolution ====================
 
-  /**
-   * 左键主动作：按优先级短路结算。链路顺序即逻辑——新增可交互物时在
-   * 合适的优先级插入一级，而不是往开关里加分支。
-   */
+  /** F 设施交互：只结算当前准星目标，不回退到附近结构。 */
+  public handleInteract() {
+    if (this.ctx.build.isBuildMode) return;
+    const target = this.aimedInteractable?.structure;
+    if (target) this.ctx.stations.interactWithStructure(target);
+  }
+
+  /** 左键主动作：建造与手持物品使用；设施交互统一走 F。 */
   public handlePrimaryClick() {
     const ctx = this.ctx;
 
@@ -173,14 +156,7 @@ export class InteractionSystem implements Tickable {
       return;
     }
 
-    // 2. Left click on raft structures (Grill, Purifier, Crop Plot, Collection Net, Chest)
-    const targetStructure = this.aimedInteractable?.structure || ctx.build.getStructureUnderCrosshair();
-    if (targetStructure) {
-      const handled = ctx.stations.interactWithStructure(targetStructure);
-      if (handled) return;
-    }
-
-    // 3. Equipped tool primary action — the item→action mapping lives in item
+    // 2. Equipped tool primary action — the item→action mapping lives in item
     // definitions (data layer); add a new tool by tagging primaryAction there.
     const activeItemId = ctx.getActiveItemId();
     const action = activeItemId ? ITEM_DEFINITIONS[activeItemId]?.primaryAction : undefined;
@@ -189,7 +165,7 @@ export class InteractionSystem implements Tickable {
       return;
     }
 
-    // 4. Food & drink consumption — single unified path (also used by HUD
+    // 3. Food & drink consumption — single unified path (also used by HUD
     // auto-consume; previously there was a duplicated eat/drink block)
     ctx.inventory.consumeSlot(false, ctx.inventory.activeHotbarIdx);
   }

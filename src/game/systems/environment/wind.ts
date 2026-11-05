@@ -190,7 +190,7 @@ export function createWindSystem(w: WorldView): WindSystem {
   let paddlingNow = false;
   const camForward = new THREE.Vector3();
 
-  /** 当前张开的帆数（BuildSystem 的 E 开合写 data.sailOpen） */
+  /** 当前张开的帆数（BuildSystem 的 F 开合写 data.sailOpen） */
   const openSailCount = (): number => {
     let n = 0;
     for (const s of w.build().structures.values()) {

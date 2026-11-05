@@ -381,7 +381,7 @@ export class BuildSystem implements Tickable {
     return count;
   }
 
-  /** 帆开/合（E 交互结算入口）：写结构 data、切视觉、随存档持久化 */
+  /** 帆开/合（F 交互结算入口）：写结构 data、切视觉、随存档持久化 */
   public setSailOpen(structure: PlacedStructure, open: boolean) {
     if (!structure.data || structure.data.sailOpen === open) return;
     structure.data.sailOpen = open;
@@ -519,12 +519,12 @@ export class BuildSystem implements Tickable {
     }
   }
 
-  // Raycast helper to find structure directly aimed at under crosshair
-  public getStructureUnderCrosshair(): PlacedStructure | null {
+  // Raycast helper to find the structure actually aimed at within interaction reach.
+  public getStructureUnderCrosshair(maxDistance = 2.4): PlacedStructure | null {
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.ctx.camera);
     const hits = this.raycaster.intersectObjects(this.raftGroup.children, true);
     for (const hit of hits) {
-      if (hit.distance > 3.6) continue;
+      if (hit.distance > maxDistance) break;
       let curr: THREE.Object3D | null = hit.object;
       while (curr && curr !== this.raftGroup) {
         for (const [_, s] of this.structures) {

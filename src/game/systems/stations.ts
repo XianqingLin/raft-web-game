@@ -62,7 +62,7 @@ export class StationSystem implements Tickable {
 
   // Unified Smart Structure Interaction (Grill, Purifier, Crop Plot, Collection Net, Chest, Bed, Sail)
   public interactWithStructure(structure: PlacedStructure): boolean {
-    // 0. Sail - E 交互开合（推力结算在 WindSystem，每帧读 structures 里的帆状态）
+    // 0. Sail - F 交互开合（推力结算在 WindSystem，每帧读 structures 里的帆状态）
     if (structure.type === 'sail') {
       this.ctx.build().setSailOpen(structure, !structure.data?.sailOpen);
       return true;
