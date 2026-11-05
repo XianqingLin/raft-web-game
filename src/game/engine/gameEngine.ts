@@ -1,6 +1,11 @@
 import * as THREE from 'three';
-import { InputSystem } from './input';
+import { InputSystem, type InputBindings } from './input';
 import type { Disposable, Tickable } from '../lifecycle';
+
+/** 引擎构造选项：键位绑定由宿主应用注入，engine 不持有任何游戏键位表。 */
+export interface EngineOptions {
+  inputBindings: InputBindings;
+}
 
 /** 通用引擎需要的外部输入语义，不包含任何具体玩法。 */
 export interface EngineInputHandler {
@@ -47,7 +52,7 @@ export class GameEngine {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, options: EngineOptions) {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 400);
 
@@ -61,14 +66,17 @@ export class GameEngine {
     this.renderer.toneMappingExposure = 1.1;
     container.appendChild(this.renderer.domElement);
 
-    this.input = new InputSystem({
-      onKeyDown: (code, key) => this.module?.inputHandler.onKeyDown(code, key),
-      onKeyUp: (code) => this.module?.inputHandler.onKeyUp(code),
-      onMouseMove: (dx, dy) => this.module?.inputHandler.onMouseMove(dx, dy),
-      onWheel: (deltaY) => this.module?.inputHandler.onWheel(deltaY) ?? false,
-      onMouseDown: (button) => this.module?.inputHandler.onMouseDown(button),
-      onMouseUp: (button) => this.module?.inputHandler.onMouseUp(button),
-    });
+    this.input = new InputSystem(
+      {
+        onKeyDown: (code, key) => this.module?.inputHandler.onKeyDown(code, key),
+        onKeyUp: (code) => this.module?.inputHandler.onKeyUp(code),
+        onMouseMove: (dx, dy) => this.module?.inputHandler.onMouseMove(dx, dy),
+        onWheel: (deltaY) => this.module?.inputHandler.onWheel(deltaY) ?? false,
+        onMouseDown: (button) => this.module?.inputHandler.onMouseDown(button),
+        onMouseUp: (button) => this.module?.inputHandler.onMouseUp(button),
+      },
+      options.inputBindings,
+    );
 
     window.addEventListener('resize', this.resizeHandler);
   }

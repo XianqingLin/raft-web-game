@@ -5,6 +5,7 @@ import type {
 } from '../types/game';
 import { DEFAULT_RAFT_GAME, type RaftGameDefinition } from '../data/gameDefinition';
 import { GameEngine } from './engine/gameEngine';
+import { engineInputBindings } from './input/bindings';
 import { SystemRegistry } from './lifecycle';
 import { RaftInputHandler } from './raftInput';
 import {
@@ -180,7 +181,7 @@ export function createRaftGame(
   container: HTMLElement,
   definition: RaftGameDefinition = DEFAULT_RAFT_GAME,
 ): RaftGame {
-  const engine = new GameEngine(container);
+  const engine = new GameEngine(container, { inputBindings: engineInputBindings() });
   const systems = new SystemRegistry();
 
   const view: WorldView = {

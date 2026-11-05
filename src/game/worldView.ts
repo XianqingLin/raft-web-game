@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { GameAction } from './engine/inputMap';
+import type { GameAction } from './input/bindings';
 import type { RaftGameDefinition } from '../data/gameDefinition';
 import type { OceanEnvironment } from './systems/environment/ocean';
 import type { WeatherSystem } from './systems/environment/weather';
@@ -31,7 +31,7 @@ export interface WorldView {
   // 引擎基础设施
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  /** 动作级按键轮询（键位定义在 engine/inputMap.ts，系统不接触原始键码） */
+  /** 动作级按键轮询（键位定义在 game/input/bindings.ts，系统不接触原始键码） */
   isActionDown: (action: GameAction) => boolean;
   /** 鼠标按键轮询（0=左键；划桨等"按住"逻辑用） */
   isMouseDown: (button: number) => boolean;

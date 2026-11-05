@@ -378,7 +378,7 @@ export const HUD: React.FC<HUDProps> = ({
                 title={
                   itemDef
                     ? `${itemDef.name}\n${itemDef.description}${
-                        isActive && (canEat || canDrink) ? '\n[Click again to Consume]' : ''
+                        canEat || canDrink ? '\n[Click to Use / Consume]' : ''
                       }`
                     : `Slot ${idx + 1}`
                 }
@@ -405,12 +405,12 @@ export const HUD: React.FC<HUDProps> = ({
                         {slot.count}
                       </span>
                     )}
-                    {isActive && canEat && (
+                    {canEat && (
                       <span className="absolute -top-1.5 right-0.5 text-[7px] font-extrabold bg-emerald-500 text-white px-1 rounded-full shadow animate-pulse">
                         EAT
                       </span>
                     )}
-                    {isActive && canDrink && !canEat && (
+                    {canDrink && !canEat && (
                       <span className="absolute -top-1.5 right-0.5 text-[7px] font-extrabold bg-sky-500 text-white px-1 rounded-full shadow animate-pulse">
                         DRINK
                       </span>

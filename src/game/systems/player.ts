@@ -12,7 +12,7 @@ import type { WorldView } from '../worldView';
 import * as THREE from 'three';
 import { PlayerStats } from '../../types/game';
 import { PlayerSpawnDef } from '../../data/gameDefinition';
-import type { GameAction } from '../engine/inputMap';
+import type { GameAction } from '../input/bindings';
 import { BLOCK_SIZE, BLOCK_HEIGHT, WALL_HEIGHT } from '../visuals/shared';
 import { soundManager } from '../../audio/soundManager';
 import { events } from '../../core/events';
@@ -30,7 +30,7 @@ export interface PlayerSystemContext {
   build: () => BuildSystem;
   /** 海面波形采样（水面眼高/游泳浮力与渲染同一公式） */
   getWaveHeight: (x: number, z: number) => number;
-  /** 动作级按键轮询（键位定义在 engine/inputMap.ts） */
+  /** 动作级按键轮询（键位定义在 game/input/bindings.ts） */
   isActionDown: (action: GameAction) => boolean;
   getPointerLocked: () => boolean;
 }

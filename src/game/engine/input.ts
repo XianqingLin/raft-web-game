@@ -1,17 +1,18 @@
 /**
- * InputSystem —— 输入系统（拆分自 engine.ts，split step 11）。
+ * InputSystem —— 输入系统（通用引擎层）。
  *
- * 职责：键盘/鼠标原始事件的绑定与生命周期、按键状态表（keys，PlayerSystem
- * 每帧读取）、动作级轮询（isDown，键位来源见 inputMap.ts）、准星锁定状态
- * 的维护。另负责两类健壮性：窗口失焦/切后台时清空按键（否则 keyup 丢失、
- * 角色粘滞移动），以及过滤 OS 按住连发（e.repeat）。
+ * 职责：键盘/鼠标原始事件的绑定与生命周期、按键状态表（keys，供"按住"
+ * 动作每帧轮询）、动作级轮询（isDown）、准星锁定状态的维护。另负责两类
+ * 健壮性：窗口失焦/切后台时清空按键（否则 keyup 丢失、角色粘滞移动），
+ * 以及过滤 OS 按住连发（e.repeat）。
  *
  * 本系统是纯粹的"翻译层"：把原始 DOM 事件翻译成语义回调（onKeyDown /
- * onMouseDown…），把按键映射到具体系统动作的决策留给 Game（组合根）。
- * 游戏内交互（左键动作、快捷键）只在指针锁定时生效，由本系统统一门控。
+ * onMouseDown…）。键位绑定（动作名 → 键码）由宿主应用在构造时注入
+ * （InputBindings），engine 不认识任何具体动作语义；"动作在哪些上下文
+ * 生效、触发什么"由玩法层的 action maps / handlers 决定。指针敏感的
+ * 鼠标事件（移动/滚轮/点击）在本系统统一门控，键盘动作的上下文门控
+ * 归玩法层。
  */
-
-import { KEY_BINDINGS, isBoundKey, type GameAction } from './inputMap';
 
 export interface InputHandlers {
   /** 按下任意键。code 为 KeyboardEvent.code，key 为 KeyboardEvent.key（数字快捷键用） */
@@ -26,6 +27,9 @@ export interface InputHandlers {
   onMouseUp: (button: number) => void;
 }
 
+/** 宿主应用注入的键位配置：动作名 → 绑定键码列表（engine 只做泛型查找） */
+export type InputBindings = Readonly<Record<string, readonly string[]>>;
+
 export class InputSystem {
   /** 按键状态表（code -> 是否按下），供移动系统每帧读取 */
   public keys: Record<string, boolean> = {};
@@ -34,9 +38,13 @@ export class InputSystem {
   /** 是否处于指针锁定（Game 对外暴露读写，React 侧 pointerlockchange 时写入） */
   public isPointerLocked = false;
 
+  private bindings: InputBindings;
+  /** 绑定键码全集（preventDefault 判定用，构造时算一次） */
+  private boundCodes: ReadonlySet<string>;
+
   /** 动作是否处于按住状态（任一绑定键按下即为真）；供移动系统每帧轮询 */
-  public isDown(action: GameAction): boolean {
-    return KEY_BINDINGS[action].some((code) => this.keys[code]);
+  public isDown(action: string): boolean {
+    return this.bindings[action]?.some((code) => this.keys[code]) ?? false;
   }
 
   /** 鼠标按键是否处于按住状态（0=左键 2=右键） */
@@ -47,8 +55,10 @@ export class InputSystem {
   private handlers: InputHandlers;
   private disposers: Array<() => void> = [];
 
-  constructor(handlers: InputHandlers) {
+  constructor(handlers: InputHandlers, bindings: InputBindings) {
     this.handlers = handlers;
+    this.bindings = bindings;
+    this.boundCodes = new Set(Object.values(bindings).flat());
     this.bind();
   }
 
@@ -61,7 +71,7 @@ export class InputSystem {
       if (e.repeat) return;
       this.keys[e.code] = true;
       // 游戏键拦截浏览器默认行为（Tab 切焦点、Space 滚动页面）
-      if (isBoundKey(e.code)) e.preventDefault();
+      if (this.boundCodes.has(e.code)) e.preventDefault();
       this.handlers.onKeyDown(e.code, e.key);
     };
     const onKeyUp = (e: KeyboardEvent) => {

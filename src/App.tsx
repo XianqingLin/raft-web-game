@@ -106,10 +106,10 @@ export default function App() {
       document.exitPointerLock?.();
     });
 
-    // 背包快捷键（I / Tab）经 inputActions 发出 toggleInventoryRequested
+    // 背包快捷键（I / Tab）经 game/input/handlers 发出 toggleInventoryRequested
     const offToggleInventory = events.on('toggleInventoryRequested', () => toggleInventory());
 
-    // 海面调参面板快捷键（`）经 inputActions 发出 toggleOceanDebugRequested
+    // 海面调参面板快捷键（`）经 game/input/handlers 发出 toggleOceanDebugRequested
     const offToggleOceanDebug = events.on('toggleOceanDebugRequested', () => toggleOceanDebug());
 
     // 高频 HUD 值由 Raft 门面统一采样，React 不接触具体系统。
@@ -143,17 +143,11 @@ export default function App() {
   };
 
   const handleSelectSlot = (idx: number) => {
-    const slot = hotbar[idx];
-    const isFood = slot?.itemId && ['cooked_fish', 'cooked_potato', 'coconut', 'raw_potato', 'raw_fish'].includes(slot.itemId);
-    const isDrink = slot?.itemId && ['cup_freshwater', 'coconut'].includes(slot.itemId);
-
-    // If clicking already active food/drink slot while hungry/thirsty, auto-consume!
-    if (activeHotbarIdx === idx && ((isFood && stats.hunger < 98) || (isDrink && stats.thirst < 98))) {
-      gameRef.current?.commands.consumeSlot(false, idx);
-      return;
+    // 统一"左键使用"：能消耗/饮用的道具直接使用；不可用的道具退回普通选中。
+    const consumed = gameRef.current?.commands.consumeSlot(false, idx) ?? false;
+    if (!consumed) {
+      gameRef.current?.commands.selectHotbarSlot(idx);
     }
-
-    gameRef.current?.commands.selectHotbarSlot(idx);
   };
 
   const handleSelectBuilding = (b: BuildingType) => {

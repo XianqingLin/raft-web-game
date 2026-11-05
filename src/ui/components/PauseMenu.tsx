@@ -50,8 +50,8 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
             <span className="font-mono font-bold text-amber-300 bg-slate-800 px-2 py-0.5 rounded">[B] Build (Planks snap to lower & upper decks)</span>
           </div>
           <div className="flex justify-between items-center py-0.5 border-b border-white/5">
-            <span className="text-slate-400">Station Auto-Cook & Auto-Eat</span>
-            <span className="font-mono font-bold text-amber-300 bg-slate-800 px-2 py-0.5 rounded">[E] or [Left-Click] on Grill / Purifier</span>
+            <span className="text-slate-400">Stations & Sails</span>
+            <span className="font-mono font-bold text-amber-300 bg-slate-800 px-2 py-0.5 rounded">[F] Interact &bull; Left-Click Use Item / Eat</span>
           </div>
           <div className="flex justify-between items-center py-0.5">
             <span className="text-slate-400">Survivor Notebook & Storage</span>
